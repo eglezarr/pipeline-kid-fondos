@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Entornos virtuales y variables de entorno
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Terraform: estado, planes y proveedores descargados (el estado vive en S3)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.tfstate.lock.info
+
+# Datos: los documentos y resultados viven en S3, nunca en el repositorio
+descargas/
+datos/
+*.pdf
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Sistema y editores
+.DS_Store
+.idea/
