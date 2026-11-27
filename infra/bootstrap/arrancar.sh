@@ -54,18 +54,6 @@ else
   echo "Creado (privado, versionado y cifrado)."
 fi
 
-echo "== Proveedor OIDC de GitHub"
-EXISTENTE=$(aws iam list-open-id-connect-providers \
-  --query "OpenIDConnectProviderList[?ends_with(Arn, 'token.actions.githubusercontent.com')].Arn" \
-  --output text)
-if [ -n "$EXISTENTE" ]; then
-  echo "Ya existe en la cuenta: se reutiliza."
-  CREAR_OIDC=false
-else
-  echo "No existe: lo crea Terraform."
-  CREAR_OIDC=true
-fi
-
 # Los proveedores de Terraform ocupan cientos de MB: se guardan en /tmp para no
 # llenar el espacio persistente de CloudShell (1 GB)
 export TF_DATA_DIR="/tmp/pipeline-kid-bootstrap"
@@ -75,7 +63,26 @@ terraform init -input=false -reconfigure \
   -backend-config="bucket=${BUCKET_ESTADO}" \
   -backend-config="region=${REGION}"
 
-echo "== Terraform apply (revisa el plan y escribe yes para confirmar)"
+echo "== Proveedor OIDC de GitHub"
+# Si este Terraform ya lo gestiona (está en su estado), se mantiene. Solo se
+# reutiliza sin gestionarlo cuando existía en la cuenta antes del arranque.
+if terraform state list 2>/dev/null | grep -q '^aws_iam_openid_connect_provider.github'; then
+  echo "Gestionado por este Terraform: se mantiene."
+  CREAR_OIDC=true
+else
+  EXISTENTE=$(aws iam list-open-id-connect-providers \
+    --query "OpenIDConnectProviderList[?ends_with(Arn, 'token.actions.githubusercontent.com')].Arn" \
+    --output text)
+  if [ -n "$EXISTENTE" ]; then
+    echo "Ya existía en la cuenta: se reutiliza sin gestionarlo."
+    CREAR_OIDC=false
+  else
+    echo "No existe: lo crea Terraform."
+    CREAR_OIDC=true
+  fi
+fi
+
+echo "== Terraform apply: revisa el plan; si indica algo en \"to destroy\", responde no"
 terraform apply -var "crear_proveedor_oidc=${CREAR_OIDC}"
 
 echo
