@@ -1,8 +1,9 @@
 name: Ejecutar pipeline
 
-# Lanza a mano las etapas del pipeline, encadenadas, para una gestora o para todas:
-# la respuesta de cada función Lambda es el evento de la siguiente. Muestra el final del log
-# de cada etapa, el manifiesto de la captura y un resumen de los datos extraídos.
+# Lanza a mano una ejecución de la máquina de estados del pipeline (Step Functions) para una
+# gestora o para todas, espera a que termine y muestra el resumen de cada gestora y el contenido
+# de la base de datos. La ejecución también puede seguirse paso a paso en la consola de Step Functions.
+# El pipeline se ejecuta además de forma programada (EventBridge Scheduler), el día 15 de cada mes.
 
 on:
   workflow_dispatch:
@@ -12,15 +13,6 @@ on:
         type: choice
         options: [todas, bestinver, azvalor]
         default: todas
-      hasta:
-        description: Última etapa a ejecutar
-        type: choice
-        options: [carga, extraccion, markdown, descarga]
-        default: carga
-      reconvertir:
-        description: Regenerar el Markdown aunque ya exista
-        type: boolean
-        default: false
 
 permissions:
   id-token: write # necesario para OIDC
@@ -31,69 +23,56 @@ env:
 
 jobs:
   pipeline:
-    name: Pipeline ${{ matrix.gestora }}
+    name: Pipeline (${{ inputs.gestora }})
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        gestora: ${{ fromJSON(inputs.gestora == 'todas' && '["bestinver", "azvalor"]' || format('["{0}"]', inputs.gestora)) }}
     steps:
-      - uses: actions/checkout@v7
-
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
 
-      - name: "Etapa 1: descarga"
+      - name: Iniciar la ejecución
         env:
-          GESTORA: ${{ matrix.gestora }}
+          GESTORA: ${{ inputs.gestora }}
         run: |
-          jq -n --arg gestora "$GESTORA" '{gestora: $gestora}' > evento.json
-          scripts/invocar_lambda.sh pipeline-kid-descarga evento.json descarga.json
+          maquina=$(aws stepfunctions list-state-machines \
+            --query "stateMachines[?name=='pipeline-kid-pipeline'].stateMachineArn" --output text)
+          if [ "$GESTORA" = "todas" ]; then
+            entrada='{"gestoras": ["bestinver", "azvalor"]}'
+          else
+            entrada=$(jq -nc --arg g "$GESTORA" '{gestoras: [$g]}')
+          fi
+          ejecucion=$(aws stepfunctions start-execution --state-machine-arn "$maquina" \
+            --input "$entrada" --query executionArn --output text)
+          echo "Ejecución: ${ejecucion##*:}"
+          echo "EJECUCION=$ejecucion" >> "$GITHUB_ENV"
 
-      - name: Manifiesto de la captura
+      - name: Esperar a que termine
         run: |
-          aws s3 cp "s3://$(jq -r .bucket descarga.json)/$(jq -r .manifiesto descarga.json)" - \
-            | jq '{gestora, fecha, inicio, fin,
-                   documentos: [.documentos[] | {fondo, isin_web, url_origen, fecha_descarga, sha256, tamano_bytes}],
-                   incidencias, fallos}'
-
-      - name: "Etapa 2: PDF a Markdown"
-        if: inputs.hasta != 'descarga'
-        env:
-          RECONVERTIR: ${{ inputs.reconvertir }}
-        run: |
-          jq --argjson sobrescribir "$RECONVERTIR" '. + {sobrescribir: $sobrescribir}' descarga.json > evento_markdown.json
-          scripts/invocar_lambda.sh pipeline-kid-markdown evento_markdown.json markdown.json
-
-      - name: "Etapa 3: extracción con Bedrock"
-        if: inputs.hasta == 'extraccion' || inputs.hasta == 'carga'
-        run: scripts/invocar_lambda.sh pipeline-kid-extraccion markdown.json extraccion.json
-
-      - name: Datos extraídos
-        if: inputs.hasta == 'extraccion' || inputs.hasta == 'carga'
-        run: |
-          bucket=$(jq -r .bucket extraccion.json)
-          for clave in $(jq -r '.claves[]' extraccion.json); do
-            aws s3 cp "s3://${bucket}/${clave}" - | jq -c '{
-              fondo: .datos.nombre_producto, clase: .datos.nombre_clase, isin: .datos.isin,
-              gestora: .datos.gestora, fecha: .datos.fecha_documento, sri: .datos.sri,
-              periodo: .datos.periodo_mantenimiento_anios, corrientes: .datos.gastos_corrientes_pct,
-              entrada: .datos.costes_entrada_pct, salida: .datos.costes_salida_pct,
-              validaciones,
-              evidencias_no_encontradas: (.datos as $d | [.verificacion_evidencias | to_entries[]
-                | select(.value | not) | {(.key): $d[.key + "_evidencia"]}] | add)
-            }'
+          while true; do
+            estado=$(aws stepfunctions describe-execution --execution-arn "$EJECUCION" --query status --output text)
+            echo "$(date -u +%H:%M:%S) $estado"
+            [ "$estado" != "RUNNING" ] && break
+            sleep 30
           done
+          echo "ESTADO=$estado" >> "$GITHUB_ENV"
 
-      - name: "Etapa 4: carga en PostgreSQL"
-        if: inputs.hasta == 'carga'
-        run: scripts/invocar_lambda.sh pipeline-kid-carga extraccion.json carga.json
+      - name: Resultado
+        run: |
+          if [ "$ESTADO" = "SUCCEEDED" ]; then
+            # Resumen de la carga de cada gestora (respuesta de la etapa 4)
+            aws stepfunctions describe-execution --execution-arn "$EJECUCION" --query output --output text \
+              | jq '.gestoras[] | {gestora, fecha, kids_cargados: (.claves | length), filas_antes, filas_despues, fallos}'
+          else
+            # Gestoras fallidas: etapa y mensaje de error
+            aws stepfunctions get-execution-history --execution-arn "$EJECUCION" --reverse-order \
+              --query 'events[?type==`TaskFailed` || type==`ExecutionFailed`]' \
+              | jq '[.[] | {tipo: .type, error: (.taskFailedEventDetails // .executionFailedEventDetails // {})}]'
+            exit 1
+          fi
 
       - name: Contenido de la base de datos
-        if: inputs.hasta == 'carga'
         run: |
           read -r cluster secreto <<< "$(aws rds describe-db-clusters --db-cluster-identifier pipeline-kid-bd \
             --query 'DBClusters[0].[DBClusterArn, MasterUserSecret.SecretArn]' --output text)"
