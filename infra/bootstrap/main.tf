@@ -46,6 +46,14 @@ locals {
     ? aws_iam_openid_connect_provider.github[0].arn
     : "arn:aws:iam::${data.aws_caller_identity.actual.account_id}:oidc-provider/${local.host_oidc_github}"
   )
+
+  # Sujetos (claim "sub" del token de GitHub) autorizados a asumir el rol
+  propietario         = split("/", var.repositorio)[0]
+  nombre_repo         = split("/", var.repositorio)[1]
+  sujetos_autorizados = [
+    "repo:${var.repositorio}:ref:refs/heads/${var.rama}",
+    "repo:${local.propietario}@${var.id_propietario}/${local.nombre_repo}@${var.id_repositorio}:ref:refs/heads/${var.rama}",
+  ]
 }
 
 # Proveedor de identidad: AWS confía en los tokens que emite GitHub Actions
@@ -73,10 +81,12 @@ data "aws_iam_policy_document" "confianza_github" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # GitHub emite el "sub" con identificadores inmutables en los repositorios creados
+    # desde julio de 2026 (propietario@id/repo@id). Se aceptan ambos formatos.
     condition {
       test     = "StringEquals"
       variable = "${local.host_oidc_github}:sub"
-      values   = ["repo:${var.repositorio}:ref:refs/heads/${var.rama}"]
+      values   = local.sujetos_autorizados
     }
   }
 }

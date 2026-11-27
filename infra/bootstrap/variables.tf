@@ -10,6 +10,18 @@ variable "repositorio" {
   default     = "eglezarr/pipeline-kid-fondos"
 }
 
+variable "id_propietario" {
+  description = "ID numérico de la cuenta de GitHub propietaria del repositorio (público)"
+  type        = string
+  default     = "237296710"
+}
+
+variable "id_repositorio" {
+  description = "ID numérico del repositorio de GitHub (público)"
+  type        = string
+  default     = "1474536826"
+}
+
 variable "rama" {
   description = "Rama del repositorio autorizada a desplegar"
   type        = string
