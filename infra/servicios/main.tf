@@ -11,12 +11,29 @@ locals {
   prefijo = "pipeline-kid"
   sufijo  = substr(sha256(data.aws_caller_identity.actual.account_id), 0, 8)
 
-  # Etapas del pipeline desplegadas como funciones Lambda con imagen Docker
+  # Etapas del pipeline desplegadas como funciones Lambda con imagen Docker.
+  # `variables`: variables de entorno propias de la etapa (además de BUCKET_DATOS).
   etapas = {
     descarga = {
       descripcion = "Etapa 1: captura de los KID de una gestora y manifiesto"
       memoria     = 512
       timeout     = 300
+      variables   = {}
+    }
+    markdown = {
+      descripcion = "Etapa 2: conversion de los KID de PDF a Markdown (con OCR)"
+      memoria     = 2048
+      timeout     = 900
+      variables   = {}
+    }
+    extraccion = {
+      descripcion = "Etapa 3: extraccion de los datos del KID con Bedrock (salida estructurada)"
+      memoria     = 512
+      timeout     = 900
+      variables = {
+        MODELO_BEDROCK          = var.modelo_bedrock
+        EXTRACCION_CONCURRENCIA = "4"
+      }
     }
   }
 }

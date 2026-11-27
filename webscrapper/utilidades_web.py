@@ -5,7 +5,7 @@
 - `Robots`: reglas de robots.txt del grupo `User-agent: *`, con los comodines `*` y `$`
   (la librería estándar `urllib.robotparser` no los interpreta).
 - `DocumentoKID`: un KID localizado en la web de una gestora, antes de descargarlo.
-- Validación de ISIN (dígito de control) y normalización de textos.
+- ISIN publicado en una página (con dígito de control válido) y normalización de textos.
 """
 
 import re
@@ -16,6 +16,8 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 from lxml import html
+
+from common.validaciones import isin_valido
 
 CABECERAS = {
     "User-Agent": (
@@ -44,23 +46,6 @@ def normalizar(texto: str) -> str:
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", texto).strip().lower()
-
-
-def isin_valido(isin: str) -> bool:
-    """Comprueba el formato y el dígito de control (algoritmo de Luhn) de un ISIN."""
-    if not re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", isin or ""):
-        return False
-    # Cada letra se sustituye por su valor (A=10 ... Z=35) y se aplica Luhn a los dígitos
-    digitos = "".join(str(int(c, 36)) for c in isin)
-    total = 0
-    for posicion, caracter in enumerate(reversed(digitos)):
-        n = int(caracter)
-        if posicion % 2 == 1:
-            n *= 2
-            if n > 9:
-                n -= 9
-        total += n
-    return total % 10 == 0
 
 
 def codificacion_html(resp: requests.Response) -> str:

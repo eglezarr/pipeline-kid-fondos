@@ -15,3 +15,9 @@ variable "dias_retencion_logs" {
   type        = number
   default     = 14
 }
+
+variable "modelo_bedrock" {
+  description = "Modelo (o perfil de inferencia) de Amazon Bedrock para la extracción de los KID"
+  type        = string
+  default     = "global.moonshotai.kimi-k3.1"
+}

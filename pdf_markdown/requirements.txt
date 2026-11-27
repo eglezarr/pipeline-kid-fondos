@@ -1,0 +1,5 @@
+# Dependencias de la imagen Lambda de la etapa 2 (PDF -> Markdown)
+pymupdf4llm>=2.1
+rapidocr>=3.10
+onnxruntime
+boto3

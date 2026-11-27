@@ -2,3 +2,8 @@
 requests
 lxml
 boto3[crt]  # el extra crt permite usar las credenciales de `aws login`
+pymupdf4llm>=2.1
+rapidocr>=3.10
+onnxruntime
+langchain-aws>=1.9
+pydantic

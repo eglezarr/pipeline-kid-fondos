@@ -58,6 +58,7 @@ structured_output/      etapa 3: extracción con Bedrock
 carga/                  etapa 4: carga en PostgreSQL
 api/                    API HTTP
 app/                    aplicación web
+scripts/                utilidades para los workflows (invocar una función Lambda)
 tests/                  tests unitarios (pytest), sin acceso a internet ni a AWS
 .github/workflows/      despliegue y ejecución con GitHub Actions
 ```
@@ -97,9 +98,28 @@ Cada gestora tiene su módulo (`webscrapper/gestora_<nombre>.py`) con una única
 - **Cambios en las webs.** Si un selector deja de encontrar elementos se usa uno más general y se avisa en el log; las fichas sin KID quedan registradas como incidencias, y si no se guarda ningún KID la etapa falla. Ha ocurrido ya: la lista de documentos de las fichas de Bestinver no coincide con el XPath original y la captura funciona con el selector de respaldo.
 - **ISIN de la web.** Cuando la ficha publica un único ISIN válido (con dígito de control correcto) se guarda en el manifiesto, para contrastarlo después con el que extrae el modelo.
 
+Ejecución en local: `python webscrapper/captura.py <gestora>` (con la variable `BUCKET_DATOS`), o `--localizar` para listar los KID sin descargarlos.
+
+## Extracción de los datos (etapas 2 y 3)
+
+**Etapa 2: PDF a Markdown** (`pdf_markdown/`). Cada KID se convierte a Markdown con `pymupdf4llm`, que conserva títulos, listas y tablas (las de costes salen como tablas Markdown) y aplica OCR con RapidOCR solo en las páginas que lo necesitan. Un texto limpio y estructurado es mejor entrada para el modelo que el PDF en bruto.
+
+**Etapa 3: extracción con Bedrock** (`structured_output/`). El modelo (por defecto, Kimi K3.1 mediante el perfil de inferencia global) recibe el Markdown y devuelve los campos del Anexo A con **salida estructurada**: el esquema JSON del modelo `DatosKID` (Pydantic) se envía en `outputConfig.textFormat` de la Converse API, así que la respuesta cumple el esquema por construcción. El esquema respeta los límites de Bedrock para salidas estructuradas: todos los campos son obligatorios en el esquema y los que pueden faltar admiten `null` (como máximo 16 campos con tipo unión), y no usa restricciones numéricas, que Bedrock no admite; los rangos se comprueban después. Un test lo verifica.
+
+Cada campo va acompañado de su **evidencia**, el fragmento literal del documento del que sale. Después de la extracción se comprueba:
+
+| Control | Qué detecta |
+|---|---|
+| La evidencia aparece en el texto (ignorando la marca Markdown y los espacios) | Valores que el modelo no ha leído del documento |
+| Dígito de control del ISIN | ISIN mal transcritos |
+| ISIN igual al publicado en la ficha web (manifiesto) | KID descargado de la ficha equivocada o ISIN de otra clase |
+| SRI entre 1 y 7 | Valores fuera de escala |
+
+El JSON de cada KID (`extraction/<gestora>/<AAAAMMDD>/<slug>_datos_fundamentales.json`) incluye los datos, las evidencias, el resultado de estos controles y los datos de origen del manifiesto (URL, fecha de descarga y huella del PDF), que la etapa 4 usa para cargar la base de datos. La extracción procesa varios KID en paralelo (4 por defecto).
+
 Ejecución:
-- En AWS: workflow **Ejecutar captura** (pestaña *Actions → Run workflow*), que invoca la función `pipeline-kid-descarga`.
-- En local: `python webscrapper/captura.py <gestora>` (con la variable `BUCKET_DATOS`), o `--localizar` para listar los KID sin descargarlos.
+- En AWS: workflow **Ejecutar pipeline** (pestaña *Actions → Run workflow*), que invoca las etapas encadenadas para una gestora o para todas y muestra un resumen de los datos extraídos.
+- En local: `python pdf_markdown/pdf_a_markdown.py <gestora>` y `python structured_output/extractor_kid.py <gestora>`.
 
 ## Despliegue
 

@@ -1,0 +1,4 @@
+# Dependencias de la imagen Lambda de la etapa 3 (extracción con Bedrock)
+langchain-aws>=1.9
+pydantic
+boto3

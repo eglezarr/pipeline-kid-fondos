@@ -7,8 +7,11 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
 # Módulos del propio repositorio (las etapas se ejecutan con su carpeta en el path)
-known-first-party = ["common", "utilidades_web", "gestora_bestinver", "gestora_azvalor", "captura"]
+known-first-party = [
+  "common", "utilidades_web", "gestora_bestinver", "gestora_azvalor", "captura",
+  "pdf_a_markdown", "extractor_kid",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "webscrapper"]
+pythonpath = [".", "webscrapper", "pdf_markdown", "structured_output"]

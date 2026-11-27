@@ -1,7 +1,8 @@
-name: Ejecutar captura
+name: Ejecutar pipeline
 
-# Lanza a mano la etapa 1 (función Lambda pipeline-kid-descarga) para una gestora o para todas,
-# y muestra en el log el final de su ejecución y el resumen que devuelve.
+# Lanza a mano las etapas del pipeline, encadenadas, para una gestora o para todas:
+# la respuesta de cada función Lambda es el evento de la siguiente. Muestra el final del log
+# de cada etapa, el manifiesto de la captura y un resumen de los datos extraídos.
 
 on:
   workflow_dispatch:
@@ -11,6 +12,11 @@ on:
         type: choice
         options: [todas, bestinver, azvalor]
         default: todas
+      hasta:
+        description: Última etapa a ejecutar
+        type: choice
+        options: [extraccion, markdown, descarga]
+        default: extraccion
 
 permissions:
   id-token: write # necesario para OIDC
@@ -20,40 +26,55 @@ env:
   AWS_REGION: eu-west-3
 
 jobs:
-  captura:
-    name: Captura ${{ matrix.gestora }}
+  pipeline:
+    name: Pipeline ${{ matrix.gestora }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         gestora: ${{ fromJSON(inputs.gestora == 'todas' && '["bestinver", "azvalor"]' || format('["{0}"]', inputs.gestora)) }}
     steps:
+      - uses: actions/checkout@v7
+
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
 
-      - name: Invocar la función
+      - name: "Etapa 1: descarga"
         env:
           GESTORA: ${{ matrix.gestora }}
         run: |
-          aws lambda invoke --function-name pipeline-kid-descarga \
-            --cli-binary-format raw-in-base64-out \
-            --payload "{\"gestora\": \"${GESTORA}\"}" \
-            --cli-read-timeout 900 --log-type Tail \
-            --query LogResult --output text respuesta.json | base64 -d
-          echo
-          echo "== Resumen devuelto por la función"
-          jq . respuesta.json
-          # Si la función ha fallado, la respuesta contiene errorMessage
-          if jq -e 'has("errorMessage")' respuesta.json > /dev/null; then exit 1; fi
+          jq -n --arg gestora "$GESTORA" '{gestora: $gestora}' > evento.json
+          scripts/invocar_lambda.sh pipeline-kid-descarga evento.json descarga.json
 
       - name: Manifiesto de la captura
         run: |
-          bucket=$(jq -r .bucket respuesta.json)
-          manifiesto=$(jq -r .manifiesto respuesta.json)
-          aws s3 cp "s3://${bucket}/${manifiesto}" - \
+          aws s3 cp "s3://$(jq -r .bucket descarga.json)/$(jq -r .manifiesto descarga.json)" - \
             | jq '{gestora, fecha, inicio, fin,
                    documentos: [.documentos[] | {fondo, isin_web, url_origen, fecha_descarga, sha256, tamano_bytes}],
                    incidencias, fallos}'
+
+      - name: "Etapa 2: PDF a Markdown"
+        if: inputs.hasta != 'descarga'
+        run: scripts/invocar_lambda.sh pipeline-kid-markdown descarga.json markdown.json
+
+      - name: "Etapa 3: extracción con Bedrock"
+        if: inputs.hasta == 'extraccion'
+        run: scripts/invocar_lambda.sh pipeline-kid-extraccion markdown.json extraccion.json
+
+      - name: Datos extraídos
+        if: inputs.hasta == 'extraccion'
+        run: |
+          bucket=$(jq -r .bucket extraccion.json)
+          for clave in $(jq -r '.claves[]' extraccion.json); do
+            aws s3 cp "s3://${bucket}/${clave}" - | jq -c '{
+              fondo: .datos.nombre_producto, clase: .datos.nombre_clase, isin: .datos.isin,
+              gestora: .datos.gestora, fecha: .datos.fecha_documento, sri: .datos.sri,
+              periodo: .datos.periodo_mantenimiento_anios, corrientes: .datos.gastos_corrientes_pct,
+              entrada: .datos.costes_entrada_pct, salida: .datos.costes_salida_pct,
+              validaciones,
+              evidencias_no_encontradas: [.verificacion_evidencias | to_entries[] | select(.value | not) | .key]
+            }'
+          done

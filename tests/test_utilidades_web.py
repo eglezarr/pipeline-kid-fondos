@@ -2,7 +2,8 @@
 
 import pytest
 
-from utilidades_web import Robots, codificacion_html, isin_unico, isin_valido, normalizar
+from common.validaciones import isin_valido
+from utilidades_web import Robots, codificacion_html, isin_unico, normalizar
 
 ROBOTS_BESTINVER = """
 User-agent: *

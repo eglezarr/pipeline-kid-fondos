@@ -28,9 +28,67 @@ data "aws_iam_policy_document" "descarga" {
   }
 }
 
+# Etapa 2: leer los PDF de download/ y escribir el Markdown en markdown/
+data "aws_iam_policy_document" "markdown" {
+  statement {
+    sid       = "ComprobarBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [data.aws_s3_bucket.datos.arn]
+  }
+
+  statement {
+    sid       = "LeerDescargas"
+    actions   = ["s3:GetObject"]
+    resources = ["${data.aws_s3_bucket.datos.arn}/download/*"]
+  }
+
+  statement {
+    sid       = "EscribirMarkdown"
+    actions   = ["s3:PutObject"]
+    resources = ["${data.aws_s3_bucket.datos.arn}/markdown/*"]
+  }
+}
+
+# Etapa 3: leer el Markdown y el manifiesto, invocar el modelo y escribir en extraction/
+data "aws_iam_policy_document" "extraccion" {
+  statement {
+    sid       = "ComprobarBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [data.aws_s3_bucket.datos.arn]
+  }
+
+  statement {
+    sid     = "LeerMarkdownYManifiesto"
+    actions = ["s3:GetObject"]
+    resources = [
+      "${data.aws_s3_bucket.datos.arn}/markdown/*",
+      "${data.aws_s3_bucket.datos.arn}/download/*",
+    ]
+  }
+
+  statement {
+    sid       = "EscribirExtraccion"
+    actions   = ["s3:PutObject"]
+    resources = ["${data.aws_s3_bucket.datos.arn}/extraction/*"]
+  }
+
+  # Un perfil de inferencia global reparte las peticiones entre regiones: hacen falta permisos
+  # sobre el perfil y sobre el modelo fundacional en cualquier región
+  statement {
+    sid     = "InvocarModelo"
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:*:${data.aws_caller_identity.actual.account_id}:inference-profile/*",
+      "arn:aws:bedrock:*::foundation-model/*",
+    ]
+  }
+}
+
 locals {
   politicas_etapas = {
-    descarga = data.aws_iam_policy_document.descarga.json
+    descarga   = data.aws_iam_policy_document.descarga.json
+    markdown   = data.aws_iam_policy_document.markdown.json
+    extraccion = data.aws_iam_policy_document.extraccion.json
   }
 }
 
@@ -77,9 +135,10 @@ resource "aws_lambda_function" "etapas" {
   timeout       = each.value.timeout
 
   environment {
-    variables = {
-      BUCKET_DATOS = data.aws_s3_bucket.datos.bucket
-    }
+    variables = merge(
+      { BUCKET_DATOS = data.aws_s3_bucket.datos.bucket },
+      each.value.variables,
+    )
   }
 
   depends_on = [
