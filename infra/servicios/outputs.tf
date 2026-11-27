@@ -17,3 +17,8 @@ output "horario_pipeline" {
   description = "Horario de la ejecución programada"
   value       = "${aws_scheduler_schedule.pipeline_mensual.schedule_expression} (${aws_scheduler_schedule.pipeline_mensual.schedule_expression_timezone}), ${aws_scheduler_schedule.pipeline_mensual.state}"
 }
+
+output "url_api" {
+  description = "URL pública de la API (documentación en /docs)"
+  value       = aws_lambda_function_url.api.function_url
+}

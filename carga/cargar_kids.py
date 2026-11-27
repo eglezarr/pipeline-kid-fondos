@@ -9,9 +9,8 @@ y, por cada uno, en una transacción:
 Procesar dos veces el mismo documento no crea filas nuevas. Antes de cargar se aplica
 `esquema.sql` (sentencias idempotentes), así que la base de datos no requiere preparación manual.
 
-La Data API se usa por HTTPS con el rol de IAM de la función: no hay conexiones que gestionar ni
-contraseñas en el código (las credenciales están en Secrets Manager). Si Aurora está en pausa, la
-primera petición la reanuda y se reintenta hasta que responde.
+El acceso a la base de datos (Data API, reintentos mientras Aurora se reanuda) está en
+common/base_datos.py, compartido con la API.
 
 Configuración (variables de entorno, las define Terraform en Lambda):
     AURORA_CLUSTER_ARN, AURORA_SECRETO_ARN, AURORA_BASE_DATOS (por defecto "fondos"), BUCKET_DATOS
@@ -24,19 +23,15 @@ Uso:
 
 import argparse
 import json
-import os
 import re
 import sys
-import time
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-
-import boto3
-from botocore.exceptions import ClientError
 
 # Raíz del repo en el path para importar el paquete común al ejecutar el script directamente
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common import almacenamiento_s3 as alm  # noqa: E402
+from common.base_datos import BaseDatos, BaseDatosNoDisponible, parametro  # noqa: E402
 
 FICHERO_ESQUEMA = Path(__file__).resolve().parent / "esquema.sql"
 
@@ -94,30 +89,6 @@ SELECT (SELECT count(*) FROM documentos), (SELECT count(*) FROM kid), (SELECT co
 """
 
 
-def parametro(nombre: str, valor, tipo: str | None = None) -> dict:
-    """Parámetro de la Data API con el tipo adecuado al valor de Python.
-
-    `tipo` es el typeHint de la Data API para textos que PostgreSQL debe interpretar como
-    DATE, TIMESTAMP o JSON.
-    """
-    if valor is None:
-        campo = {"isNull": True}
-    elif isinstance(valor, bool):
-        campo = {"booleanValue": valor}
-    elif isinstance(valor, int):
-        campo = {"longValue": valor}
-    elif isinstance(valor, float):
-        campo = {"doubleValue": valor}
-    elif isinstance(valor, (dict, list)):
-        campo, tipo = {"stringValue": json.dumps(valor, ensure_ascii=False)}, "JSON"
-    else:
-        campo = {"stringValue": str(valor)}
-    resultado = {"name": nombre, "value": campo}
-    if tipo and valor is not None:
-        resultado["typeHint"] = tipo
-    return resultado
-
-
 def marca_temporal(texto_iso: str) -> str:
     """'2026-11-27T16:29:30Z' -> '2026-11-27 16:29:30' (formato TIMESTAMP de la Data API, en UTC)."""
     return datetime.strptime(texto_iso, "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d %H:%M:%S")
@@ -138,53 +109,8 @@ def sentencias_esquema(texto: str) -> list[str]:
     return sentencias
 
 
-class BaseDatos:
-    """Acceso a Aurora PostgreSQL mediante la RDS Data API."""
-
-    def __init__(self, cluster_arn: str, secreto_arn: str, base_datos: str, cliente=None):
-        self.cluster_arn = cluster_arn
-        self.secreto_arn = secreto_arn
-        self.base_datos = base_datos
-        self.cliente = cliente or boto3.client("rds-data")
-
-    @classmethod
-    def desde_entorno(cls) -> "BaseDatos":
-        try:
-            return cls(
-                os.environ["AURORA_CLUSTER_ARN"],
-                os.environ["AURORA_SECRETO_ARN"],
-                os.environ.get("AURORA_BASE_DATOS", "fondos"),
-            )
-        except KeyError as e:
-            raise alm.ErrorEtapa(f"falta la variable de entorno {e}") from e
-
-    def _llamar(self, operacion: str, **argumentos) -> dict:
-        """Llama a la Data API; si Aurora se está reanudando tras una pausa, espera y reintenta."""
-        argumentos |= {"resourceArn": self.cluster_arn, "secretArn": self.secreto_arn}
-        for intento in range(1, 13):
-            try:
-                return getattr(self.cliente, operacion)(**argumentos)
-            except ClientError as e:
-                if e.response["Error"]["Code"] != "DatabaseResumingException" or intento == 12:
-                    raise
-                print(f"Aurora se está reanudando (intento {intento}); nuevo intento en 10 s")
-                time.sleep(10)
-        raise AssertionError("inalcanzable")
-
-    def ejecutar(self, sql: str, parametros: list[dict] | None = None, transaccion: str | None = None) -> dict:
-        argumentos = {"sql": sql, "database": self.base_datos, "parameters": parametros or []}
-        if transaccion:
-            argumentos["transactionId"] = transaccion
-        return self._llamar("execute_statement", **argumentos)
-
-    def transaccion(self) -> str:
-        return self._llamar("begin_transaction", database=self.base_datos)["transactionId"]
-
-    def confirmar(self, transaccion: str) -> None:
-        self._llamar("commit_transaction", transactionId=transaccion)
-
-    def deshacer(self, transaccion: str) -> None:
-        self._llamar("rollback_transaction", transactionId=transaccion)
+class BaseDatosCarga(BaseDatos):
+    """Base de datos con las operaciones propias de la carga: esquema y recuento de filas."""
 
     def aplicar_esquema(self) -> None:
         for sentencia in sentencias_esquema(FICHERO_ESQUEMA.read_text(encoding="utf-8")):
@@ -234,7 +160,7 @@ def cargar_kids(
     bucket: str | None = None,
     fecha: str | None = None,
     claves: list[str] | None = None,
-    bd: BaseDatos | None = None,
+    bd: BaseDatosCarga | None = None,
 ) -> dict:
     """Carga en PostgreSQL los JSON de extraction/<gestora>/<fecha>/ (o los de `claves`)."""
     bucket = alm.resolver_bucket(bucket)
@@ -250,8 +176,11 @@ def cargar_kids(
     if not claves_json:
         raise alm.ErrorEtapa(f"no hay ningún JSON que cargar en s3://{bucket}/{origen}/")
 
-    bd = bd or BaseDatos.desde_entorno()
-    bd.aplicar_esquema()
+    try:
+        bd = bd or BaseDatosCarga.desde_entorno()
+        bd.aplicar_esquema()
+    except BaseDatosNoDisponible as e:
+        raise alm.ErrorEtapa(str(e)) from e
     antes = bd.recuento()
 
     cargados, fallos = [], []

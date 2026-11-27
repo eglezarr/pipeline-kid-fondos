@@ -9,9 +9,9 @@ select = ["E", "F", "I", "B", "UP"]
 # Módulos del propio repositorio (las etapas se ejecutan con su carpeta en el path)
 known-first-party = [
   "common", "utilidades_web", "gestora_bestinver", "gestora_azvalor", "captura",
-  "pdf_a_markdown", "extractor_kid", "cargar_kids",
+  "pdf_a_markdown", "extractor_kid", "cargar_kids", "api_fondos",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "webscrapper", "pdf_markdown", "structured_output", "carga"]
+pythonpath = [".", "webscrapper", "pdf_markdown", "structured_output", "carga", "api"]

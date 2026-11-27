@@ -7,3 +7,6 @@ rapidocr>=3.10
 onnxruntime
 langchain-aws>=1.9
 pydantic
+fastapi
+mangum
+uvicorn  # servidor local de la API

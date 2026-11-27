@@ -51,12 +51,12 @@ flowchart LR
 infra/bootstrap/        arranque de la cuenta (una vez): estado de Terraform y conexión GitHub–AWS
 infra/                  infraestructura base: bucket de datos, repositorios de imágenes (ECR) y Aurora
 infra/servicios/        servicios que usan esa base: funciones Lambda de las etapas, orquestación, API y app
-common/                 código compartido por las etapas (acceso a S3, eventos de Lambda)
+common/                 código compartido (acceso a S3, a la base de datos con la Data API, eventos de Lambda)
 webscrapper/            etapa 1: captura de los KID (un módulo por gestora)
 pdf_markdown/           etapa 2: PDF a Markdown
 structured_output/      etapa 3: extracción con Bedrock
 carga/                  etapa 4: carga en PostgreSQL
-api/                    API HTTP
+api/                    API HTTP (FastAPI en Lambda)
 app/                    aplicación web
 tests/                  tests unitarios (pytest), sin acceso a internet ni a AWS
 .github/workflows/      despliegue y ejecución con GitHub Actions
@@ -184,6 +184,28 @@ flowchart LR
 
 **Ejecución manual.** Workflow **Ejecutar pipeline** (pestaña *Actions → Run workflow*): inicia una ejecución para una gestora o para todas, espera a que termine y muestra el resumen de la carga y el contenido de la base de datos.
 
+## API
+
+La API (`api/`) es una aplicación **FastAPI** que se ejecuta en una función Lambda con imagen Docker y se publica con una **Function URL** (HTTPS, sin servidor que mantener). Mangum traduce las peticiones de la Function URL al formato de FastAPI. Documentación interactiva en `/docs`.
+
+| Ruta | Devuelve |
+|---|---|
+| `GET /health` | Estado del servicio (no consulta la base de datos, para no reanudarla) |
+| `GET /fondos` | Fondos con su último KID. Filtros: `fuente` (bestinver, azvalor), `sri_min`, `sri_max`, `texto` (ISIN o nombre); orden: `nombre`, `sri`, `gastos`, `isin` |
+| `GET /fondos/{isin}` | Detalle: datos del Anexo A, evidencia literal de cada campo y su verificación, validaciones, origen del documento e historial de versiones del KID |
+| `GET /fondos/{isin}/kid` | Redirección al PDF original mediante un enlace temporal de S3 (5 minutos) |
+| `GET /gestoras` | Por gestora: número de fondos, SRI medio, gastos corrientes medios y última descarga |
+| `GET /resumen` | Totales, distribución del SRI e indicadores de calidad de la extracción |
+
+Ejemplos: `/fondos?fuente=azvalor&orden=gastos`, `/fondos?sri_max=3&texto=renta`.
+
+- **Solo lectura.** Consulta la vista `kid_actual` y, para el historial, las tablas `kid` y `documentos`. Su rol de IAM solo puede ejecutar sentencias sueltas en la Data API (sin transacciones) y leer los PDF para firmar los enlaces temporales.
+- **Consultas parametrizadas.** Los filtros se envían siempre como parámetros de la Data API y el orden se elige de una lista cerrada: ningún texto del usuario se concatena en el SQL. FastAPI valida los parámetros (rango del SRI, formato del ISIN) y responde 422 a los que no son válidos.
+- **Aurora en pausa.** Si la base de datos está pausada, la primera petición la reanuda: la API reintenta durante unos 40 segundos y, si aún no responde, devuelve 503 con la cabecera `Retry-After`. Las siguientes peticiones responden en milisegundos.
+- **Contrato tipado.** Las respuestas se definen con modelos de Pydantic, que convierten los valores de la Data API (numéricos y fechas como texto, JSONB como cadena) a sus tipos y documentan cada campo en `/docs`.
+
+Ejecución en local (con credenciales de AWS y las variables `AURORA_CLUSTER_ARN`, `AURORA_SECRETO_ARN` y `BUCKET_DATOS`): `python -m uvicorn api_fondos:app --app-dir api` desde la raíz del repo.
+
 ## Despliegue
 
 Región: `eu-west-3` (París). La cuenta de AWS debe estar en el plan de pago: el plan gratuito solo permite crear Aurora con la configuración express, que no admite la Data API con las credenciales gestionadas ni la creación directa desde Terraform. El gasto se cubre con los créditos de la cuenta y se vigila con alertas de AWS Budgets.
@@ -214,3 +236,4 @@ El workflow **Despliegue (imágenes y servicios)** se ejecuta en cada push a `ma
 1. Pasa el linter (`ruff`) y los tests (`pytest`); si fallan, no se despliega nada.
 2. Construye y sube a ECR la imagen de cada etapa cuya carpeta ha cambiado (todas si cambia `common/`).
 3. Aplica `infra/servicios/`: cada función Lambda pasa a usar la imagen más reciente de su repositorio.
+4. Prueba la API desplegada (`/health` y `/resumen`).

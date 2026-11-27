@@ -5,8 +5,9 @@ import json
 import pytest
 
 import cargar_kids
-from cargar_kids import BaseDatos, marca_temporal, parametro, sentencias_esquema
+from cargar_kids import BaseDatosCarga, marca_temporal, sentencias_esquema
 from common import almacenamiento_s3 as alm
+from common.base_datos import parametro
 
 EXTRACCION = {
     "gestora": "bestinver",
@@ -110,7 +111,7 @@ def s3_simulado(monkeypatch):
 
 def test_cargar_dos_veces_no_duplica(s3_simulado):
     api = DataApiFalsa()
-    bd = BaseDatos("arn:cluster", "arn:secreto", "fondos", cliente=api)
+    bd = BaseDatosCarga("arn:cluster", "arn:secreto", "fondos", cliente=api)
 
     primera = cargar_kids.cargar_kids("bestinver", bucket="b", fecha="20261127", bd=bd)
     segunda = cargar_kids.cargar_kids("bestinver", bucket="b", fecha="20261127", bd=bd)

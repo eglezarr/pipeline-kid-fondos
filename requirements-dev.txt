@@ -1,4 +1,5 @@
 # Herramientas de calidad (tests y linter), usadas también en GitHub Actions
 -r requirements.txt
 pytest
+httpx  # cliente de pruebas de FastAPI (TestClient)
 ruff
