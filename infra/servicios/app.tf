@@ -106,10 +106,13 @@ resource "aws_ecs_express_gateway_service" "app" {
     }
   }
 
-  # Una sola tarea: limita el coste (la aplicación tiene poco tráfico)
+  # Una sola tarea: limita el coste (la aplicación tiene poco tráfico). La métrica y el objetivo
+  # son los valores por defecto de AWS; se declaran para que Terraform no detecte diferencias.
   scaling_target {
-    min_task_count = 1
-    max_task_count = 1
+    min_task_count            = 1
+    max_task_count            = 1
+    auto_scaling_metric       = "AVERAGE_CPU"
+    auto_scaling_target_value = 60
   }
 
   # Los permisos deben existir hasta que el servicio se haya borrado del todo
