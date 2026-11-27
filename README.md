@@ -75,8 +75,8 @@ Cada gestora tiene su módulo (`webscrapper/gestora_<nombre>.py`) con una única
 {
   "gestora": "azvalor",
   "fecha": "20261127",
-  "inicio": "2026-11-27T17:40:02Z",
-  "fin": "2026-11-27T17:40:21Z",
+  "inicio": "2026-11-27T16:29:23Z",
+  "fin": "2026-11-27T16:29:34Z",
   "documentos": [{
     "fondo": "Azvalor Internacional FI",
     "slug": "azvalor-internacional",
@@ -84,17 +84,17 @@ Cada gestora tiene su módulo (`webscrapper/gestora_<nombre>.py`) con una única
     "url_origen": "https://www.azvalor.com/wp-content/uploads/2026/01/DFP-Internacional-09.01.2026.pdf",
     "isin_web": "ES0112611001",
     "clave_s3": "download/azvalor/20261127/azvalor-internacional_datos_fundamentales.pdf",
-    "fecha_descarga": "2026-11-27T17:40:05Z",
-    "sha256": "…",
-    "tamano_bytes": 182734
-  }],
+    "fecha_descarga": "2026-11-27T16:29:30Z",
+    "sha256": "16711022b3ec1e1b889cddc1b748c9afdcb9b9e5821d5a241d98296d9a104fd9",
+    "tamano_bytes": 436559
+  }, …],
   "incidencias": [],
   "fallos": []
 }
 ```
 
-- **Captura responsable.** Antes de cada petición se comprueban las reglas de `robots.txt` del sitio (incluidos los comodines `*` y `$`), se deja una pausa entre peticiones (1 s por defecto) y solo se descargan documentos regulatorios públicos. Los PDF no se exponen: el bucket es privado.
-- **Cambios en las webs.** Si un selector deja de encontrar elementos se usa uno más general y se avisa en el log; las fichas sin KID quedan registradas como incidencias, y si no se guarda ningún KID la etapa falla.
+- **Captura responsable.** Antes de cada petición se comprueban las reglas de `robots.txt` del sitio (incluidos los comodines `*` y `$`), se deja una pausa entre peticiones (1 s por defecto) y solo se descargan documentos regulatorios públicos, unos 30 por ejecución. Los PDF no se exponen: el bucket es privado. El `robots.txt` de Bestinver contiene `Disallow: /*.pdf$`, una regla orientada a que los buscadores no indexen sus PDF; los enlaces que la web publica para los KID llevan un parámetro (`…pdf?h=…`) y no coinciden con ella.
+- **Cambios en las webs.** Si un selector deja de encontrar elementos se usa uno más general y se avisa en el log; las fichas sin KID quedan registradas como incidencias, y si no se guarda ningún KID la etapa falla. Ha ocurrido ya: la lista de documentos de las fichas de Bestinver no coincide con el XPath original y la captura funciona con el selector de respaldo.
 - **ISIN de la web.** Cuando la ficha publica un único ISIN válido (con dígito de control correcto) se guarda en el manifiesto, para contrastarlo después con el que extrae el modelo.
 
 Ejecución:
