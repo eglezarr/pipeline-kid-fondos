@@ -49,16 +49,57 @@ flowchart LR
 
 ```
 infra/bootstrap/        arranque de la cuenta (una vez): estado de Terraform y conexión GitHub–AWS
-infra/                  infraestructura principal (S3, ECR, Aurora, Lambdas, Step Functions, API, app)
+infra/                  infraestructura base: bucket de datos, repositorios de imágenes (ECR) y Aurora
+infra/servicios/        servicios que usan esa base: funciones Lambda de las etapas, orquestación, API y app
 common/                 código compartido por las etapas (acceso a S3, eventos de Lambda)
-webscrapper/            etapa 1: descarga de los KID
+webscrapper/            etapa 1: captura de los KID (un módulo por gestora)
 pdf_markdown/           etapa 2: PDF a Markdown
 structured_output/      etapa 3: extracción con Bedrock
 carga/                  etapa 4: carga en PostgreSQL
 api/                    API HTTP
 app/                    aplicación web
-.github/workflows/      despliegue con GitHub Actions
+tests/                  tests unitarios (pytest), sin acceso a internet ni a AWS
+.github/workflows/      despliegue y ejecución con GitHub Actions
 ```
+
+## Captura de los KID (etapa 1)
+
+| Gestora | Listado de fondos | Dónde está el KID |
+|---|---|---|
+| Bestinver | Pie de página de `/fondos-de-inversion/` | Enlace «Datos fundamentales» de cada ficha |
+| Azvalor | Enlaces a `/fondos-de-inversion/<slug>/` en `/fondos/` | Enlace «Folleto simplificado (DFP)» de cada ficha; el nombre del PDF incluye su fecha, por lo que la URL se lee del HTML en cada ejecución |
+
+Cada gestora tiene su módulo (`webscrapper/gestora_<nombre>.py`) con una única función, `localizar_kids`, que devuelve los KID publicados en la web. La lógica común está en `webscrapper/captura.py`: descarga cada PDF, comprueba que es un PDF, calcula su huella `sha256`, lo sube a `download/<gestora>/<AAAAMMDD>/<slug>_datos_fundamentales.pdf` y guarda el manifiesto de la ejecución en `download/<gestora>/<AAAAMMDD>/manifiesto.json`:
+
+```json
+{
+  "gestora": "azvalor",
+  "fecha": "20261127",
+  "inicio": "2026-11-27T17:40:02Z",
+  "fin": "2026-11-27T17:40:21Z",
+  "documentos": [{
+    "fondo": "Azvalor Internacional FI",
+    "slug": "azvalor-internacional",
+    "url_ficha": "https://www.azvalor.com/fondos-de-inversion/azvalor-internacional/",
+    "url_origen": "https://www.azvalor.com/wp-content/uploads/2026/01/DFP-Internacional-09.01.2026.pdf",
+    "isin_web": "ES0112611001",
+    "clave_s3": "download/azvalor/20261127/azvalor-internacional_datos_fundamentales.pdf",
+    "fecha_descarga": "2026-11-27T17:40:05Z",
+    "sha256": "…",
+    "tamano_bytes": 182734
+  }],
+  "incidencias": [],
+  "fallos": []
+}
+```
+
+- **Captura responsable.** Antes de cada petición se comprueban las reglas de `robots.txt` del sitio (incluidos los comodines `*` y `$`), se deja una pausa entre peticiones (1 s por defecto) y solo se descargan documentos regulatorios públicos. Los PDF no se exponen: el bucket es privado.
+- **Cambios en las webs.** Si un selector deja de encontrar elementos se usa uno más general y se avisa en el log; las fichas sin KID quedan registradas como incidencias, y si no se guarda ningún KID la etapa falla.
+- **ISIN de la web.** Cuando la ficha publica un único ISIN válido (con dígito de control correcto) se guarda en el manifiesto, para contrastarlo después con el que extrae el modelo.
+
+Ejecución:
+- En AWS: workflow **Ejecutar captura** (pestaña *Actions → Run workflow*), que invoca la función `pipeline-kid-descarga`.
+- En local: `python webscrapper/captura.py <gestora>` (con la variable `BUCKET_DATOS`), o `--localizar` para listar los KID sin descargarlos.
 
 ## Despliegue
 
@@ -79,6 +120,14 @@ El script instala Terraform si hace falta, crea el bucket privado del estado de 
 
 En el repositorio: *Settings → Secrets and variables → Actions → New repository secret*, con nombre `AWS_ROLE_ARN` y el ARN del paso anterior.
 
-### 3. Infraestructura
+### 3. Infraestructura base
 
-El workflow `Infraestructura (Terraform)` aplica `infra/` en cada push a `main` que la modifique, o a mano desde la pestaña *Actions*.
+El workflow **Infraestructura (Terraform)** aplica `infra/` en cada push a `main` que la modifique, o a mano desde la pestaña *Actions*. Al terminar comprueba que la base de datos responde a través de la Data API.
+
+### 4. Imágenes y servicios
+
+El workflow **Despliegue (imágenes y servicios)** se ejecuta en cada push a `main` que modifique el código o `infra/servicios/`:
+
+1. Pasa el linter (`ruff`) y los tests (`pytest`); si fallan, no se despliega nada.
+2. Construye y sube a ECR la imagen de cada etapa cuya carpeta ha cambiado (todas si cambia `common/`).
+3. Aplica `infra/servicios/`: cada función Lambda pasa a usar la imagen más reciente de su repositorio.

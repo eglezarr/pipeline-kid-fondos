@@ -2,7 +2,8 @@ name: Infraestructura (Terraform)
 
 # Aplica la infraestructura de infra/ en cada push a main que la modifique,
 # o a mano desde la pestaña Actions (Run workflow).
-# infra/bootstrap/ no se despliega aquí: se aplica una sola vez desde CloudShell.
+# infra/bootstrap/ no se despliega aquí (se aplica una sola vez desde CloudShell) ni
+# infra/servicios/ (lo aplica el workflow de despliegue, después de construir las imágenes).
 
 on:
   push:
@@ -10,6 +11,7 @@ on:
     paths:
       - "infra/**"
       - "!infra/bootstrap/**"
+      - "!infra/servicios/**"
       - ".github/workflows/infra.yml"
   workflow_dispatch:
 
@@ -54,7 +56,7 @@ jobs:
           echo "TF_STATE_BUCKET=pipeline-kid-tfstate-${sufijo}" >> "$GITHUB_ENV"
 
       - name: Formato
-        run: terraform fmt -check -recursive -diff || echo "::warning::Hay ficheros .tf sin formatear (terraform fmt)"
+        run: terraform fmt -check -diff || echo "::warning::Hay ficheros .tf sin formatear (terraform fmt)"
 
       - name: Init
         run: |

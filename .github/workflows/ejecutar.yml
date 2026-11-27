@@ -1,0 +1,50 @@
+name: Ejecutar captura
+
+# Lanza a mano la etapa 1 (función Lambda pipeline-kid-descarga) para una gestora o para todas,
+# y muestra en el log el final de su ejecución y el resumen que devuelve.
+
+on:
+  workflow_dispatch:
+    inputs:
+      gestora:
+        description: Gestora
+        type: choice
+        options: [todas, bestinver, azvalor]
+        default: todas
+
+permissions:
+  id-token: write # necesario para OIDC
+  contents: read
+
+env:
+  AWS_REGION: eu-west-3
+
+jobs:
+  captura:
+    name: Captura ${{ matrix.gestora }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gestora: ${{ fromJSON(inputs.gestora == 'todas' && '["bestinver", "azvalor"]' || format('["{0}"]', inputs.gestora)) }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Invocar la función
+        env:
+          GESTORA: ${{ matrix.gestora }}
+        run: |
+          aws lambda invoke --function-name pipeline-kid-descarga \
+            --cli-binary-format raw-in-base64-out \
+            --payload "{\"gestora\": \"${GESTORA}\"}" \
+            --cli-read-timeout 900 --log-type Tail \
+            --query LogResult --output text respuesta.json | base64 -d
+          echo
+          echo "== Resumen devuelto por la función"
+          jq . respuesta.json
+          # Si la función ha fallado, la respuesta contiene errorMessage
+          if jq -e 'has("errorMessage")' respuesta.json > /dev/null; then exit 1; fi

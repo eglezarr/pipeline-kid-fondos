@@ -1,0 +1,4 @@
+# Herramientas de calidad (tests y linter), usadas también en GitHub Actions
+-r requirements.txt
+pytest
+ruff

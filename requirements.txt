@@ -1,0 +1,4 @@
+# Entorno local: dependencias de todas las etapas (cada imagen Lambda tiene su propio requirements.txt)
+requests
+lxml
+boto3[crt]  # el extra crt permite usar las credenciales de `aws login`

@@ -1,0 +1,174 @@
+name: Despliegue (imágenes y servicios)
+
+# En cada push a main que modifique el código o infra/servicios:
+#   1. calidad:   linter (ruff) y tests (pytest). Si fallan, no se despliega nada.
+#   2. cambios:   decide qué imágenes reconstruir según las carpetas modificadas
+#                 (un cambio en common/ las reconstruye todas).
+#   3. imagenes:  construye y sube a ECR las imágenes de esas etapas.
+#   4. servicios: aplica infra/servicios con Terraform; cada Lambda pasa a usar la imagen
+#                 más reciente de su repositorio.
+# Lanzado a mano (Run workflow) reconstruye todas las imágenes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "common/**"
+      - "webscrapper/**"
+      - "tests/**"
+      - "infra/servicios/**"
+      - "pyproject.toml"
+      - "requirements*.txt"
+      - ".github/workflows/despliegue.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # necesario para OIDC
+  contents: read
+
+concurrency:
+  group: despliegue
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-3
+
+jobs:
+  calidad:
+    name: Tests y linter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python -m pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest
+
+  cambios:
+    name: Detectar etapas cambiadas
+    runs-on: ubuntu-latest
+    outputs:
+      matriz: ${{ steps.filtro.outputs.matriz }}
+      hay_etapas: ${{ steps.filtro.outputs.hay_etapas }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # historial completo para comparar con el commit anterior al push
+
+      - id: filtro
+        env:
+          EVENTO: ${{ github.event_name }}
+          ANTES: ${{ github.event.before }}
+          # carpeta del repo con su Dockerfile -> repositorio ECR de la imagen
+          ETAPAS: >-
+            [
+              {"carpeta": "webscrapper", "repositorio": "pipeline-kid-descarga"}
+            ]
+        run: |
+          if [ "$EVENTO" != "push" ] || ! git cat-file -e "${ANTES}^{commit}" 2>/dev/null; then
+            echo "Sin commit anterior con el que comparar: se reconstruyen todas las imágenes."
+            seleccion="$ETAPAS"
+          else
+            cambiados=$(git diff --name-only "$ANTES" "$GITHUB_SHA")
+            echo "Ficheros cambiados:"
+            echo "$cambiados" | sed 's/^/  /'
+            if echo "$cambiados" | grep -q '^common/'; then
+              echo "Cambios en common/: se reconstruyen todas las imágenes."
+              seleccion="$ETAPAS"
+            else
+              seleccion=$(jq -c --arg cambiados "$cambiados" \
+                '[.[] | . as $e | select($cambiados | split("\n") | any(startswith($e.carpeta + "/")))]' \
+                <<< "$ETAPAS")
+            fi
+          fi
+          seleccion=$(jq -c . <<< "$seleccion")
+          echo "Imágenes a construir: $(jq -r 'map(.carpeta) | join(", ")' <<< "$seleccion")"
+          echo "matriz=$seleccion" >> "$GITHUB_OUTPUT"
+          echo "hay_etapas=$(jq 'length > 0' <<< "$seleccion")" >> "$GITHUB_OUTPUT"
+
+  imagenes:
+    name: Imagen ${{ matrix.carpeta }}
+    needs: [calidad, cambios]
+    if: needs.cambios.outputs.hay_etapas == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.cambios.outputs.matriz) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Construir y subir la imagen
+        env:
+          IMAGEN: ${{ steps.ecr.outputs.registry }}/${{ matrix.repositorio }}:${{ github.sha }}
+        run: |
+          # Contexto de construcción: raíz del repo, para poder copiar common/ en la imagen.
+          # --provenance=false evita un formato de imagen que Lambda no acepta.
+          docker build --platform linux/amd64 --provenance=false \
+            -f "${{ matrix.carpeta }}/Dockerfile" -t "$IMAGEN" .
+          docker push "$IMAGEN"
+
+  servicios:
+    name: Terraform (servicios)
+    needs: [calidad, imagenes]
+    # Se ejecuta aunque no haya imágenes nuevas, siempre que los tests y las imágenes no hayan fallado
+    if: >-
+      always() && needs.calidad.result == 'success' &&
+      (needs.imagenes.result == 'success' || needs.imagenes.result == 'skipped')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/servicios
+    env:
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Nombre del bucket del estado
+        run: |
+          cuenta=$(aws sts get-caller-identity --query Account --output text)
+          sufijo=$(printf '%s' "$cuenta" | sha256sum | cut -c1-8)
+          echo "TF_STATE_BUCKET=pipeline-kid-tfstate-${sufijo}" >> "$GITHUB_ENV"
+
+      - name: Formato
+        run: terraform fmt -check -diff || echo "::warning::Hay ficheros .tf sin formatear (terraform fmt)"
+
+      - name: Init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        run: terraform plan -input=false -out=plan.tfplan
+
+      - name: Apply
+        run: terraform apply -input=false plan.tfplan
+
+      - name: Outputs
+        run: terraform output
