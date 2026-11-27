@@ -22,7 +22,7 @@ locals {
     }
     markdown = {
       descripcion = "Etapa 2: conversion de los KID de PDF a Markdown (con OCR)"
-      memoria     = 2048
+      memoria     = 3008 # mas memoria = mas CPU para el OCR (3008 MB es el maximo en cuentas nuevas)
       timeout     = 900
       variables   = {}
     }
