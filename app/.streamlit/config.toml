@@ -1,0 +1,43 @@
+# Configuración de Streamlit para la aplicación (se lee desde la carpeta de trabajo, app/)
+
+[server]
+headless = true
+port = 8501
+# Sirve app/static: la tipografía va con la aplicación, sin pedirla a servicios externos
+enableStaticServing = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "viewer"
+showErrorDetails = "none"
+
+[theme]
+base = "light"
+primaryColor = "#1d2b44"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f5f7"
+textColor = "#1d2b44"
+linkColor = "#1d2b44"
+borderColor = "#e3e6eb"
+baseRadius = "4px"
+font = "Atkinson Hyperlegible Next, sans-serif"
+headingFont = "Atkinson Hyperlegible Next, sans-serif"
+codeFont = "monospace"
+baseFontSize = 16
+chartCategoricalColors = ["#2e69b2", "#bd821a"]
+
+# Atkinson Hyperlegible Next (licencia SIL Open Font License, en static/fonts/OFL.txt):
+# tipografía diseñada para la máxima legibilidad, coherente con el propósito del KID
+[[theme.fontFaces]]
+family = "Atkinson Hyperlegible Next"
+url = "app/static/fonts/AtkinsonHyperlegibleNext-Variable.woff2"
+weight = "200 800"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "Atkinson Hyperlegible Next"
+url = "app/static/fonts/AtkinsonHyperlegibleNext-Italic-Variable.woff2"
+weight = "200 800"
+style = "italic"

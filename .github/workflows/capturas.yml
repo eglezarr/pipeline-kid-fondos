@@ -1,0 +1,60 @@
+name: Capturas de la aplicación
+
+# A mano (Run workflow): captura cada página de la aplicación desplegada, en escritorio y en
+# móvil, y las deja como artefacto del workflow durante 5 días. Sirven para revisar el diseño con
+# los datos reales y para la documentación y la presentación.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write # necesario para OIDC
+  contents: read
+
+env:
+  AWS_REGION: eu-west-3
+
+jobs:
+  capturas:
+    name: Capturar las páginas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: URLs de la aplicación y de la API
+        working-directory: infra/servicios
+        run: |
+          cuenta=$(aws sts get-caller-identity --query Account --output text)
+          sufijo=$(printf '%s' "$cuenta" | sha256sum | cut -c1-8)
+          terraform init -input=false -backend-config="bucket=pipeline-kid-tfstate-${sufijo}" \
+            -backend-config="region=${AWS_REGION}" > /dev/null
+          echo "URL_APP=$(terraform output -raw url_app)" >> "$GITHUB_ENV"
+          echo "URL_API=$(terraform output -raw url_api)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Instalar Playwright y Chromium
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Capturar
+        run: python scripts/capturar_app.py "$URL_APP" capturas "$URL_API"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: capturas-app
+          path: capturas/
+          retention-days: 5

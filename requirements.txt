@@ -10,3 +10,5 @@ pydantic
 fastapi
 mangum
 uvicorn  # servidor local de la API
+streamlit>=1.67
+altair>=6

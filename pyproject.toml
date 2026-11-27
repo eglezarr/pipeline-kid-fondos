@@ -10,8 +10,9 @@ select = ["E", "F", "I", "B", "UP"]
 known-first-party = [
   "common", "utilidades_web", "gestora_bestinver", "gestora_azvalor", "captura",
   "pdf_a_markdown", "extractor_kid", "cargar_kids", "api_fondos",
+  "calculos", "cliente_api", "componentes", "datos",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "webscrapper", "pdf_markdown", "structured_output", "carga", "api"]
+pythonpath = [".", "webscrapper", "pdf_markdown", "structured_output", "carga", "api", "app"]

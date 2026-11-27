@@ -4,9 +4,9 @@ name: Despliegue (imágenes y servicios)
 #   1. calidad:   linter (ruff) y tests (pytest). Si fallan, no se despliega nada.
 #   2. cambios:   decide qué imágenes reconstruir según las carpetas modificadas
 #                 (un cambio en common/ las reconstruye todas).
-#   3. imagenes:  construye y sube a ECR las imágenes de esas etapas y de la API.
-#   4. servicios: aplica infra/servicios con Terraform (cada Lambda pasa a usar la imagen
-#                 más reciente de su repositorio) y prueba la API desplegada.
+#   3. imagenes:  construye y sube a ECR las imágenes de esas etapas, de la API y de la app.
+#   4. servicios: aplica infra/servicios con Terraform (cada Lambda y la app pasan a usar la
+#                 imagen más reciente de su repositorio) y prueba la API y la app desplegadas.
 # Lanzado a mano (Run workflow) reconstruye todas las imágenes.
 
 on:
@@ -19,6 +19,7 @@ on:
       - "structured_output/**"
       - "carga/**"
       - "api/**"
+      - "app/**"
       - "tests/**"
       - "infra/servicios/**"
       - "pyproject.toml"
@@ -73,7 +74,8 @@ jobs:
               {"carpeta": "pdf_markdown",      "repositorio": "pipeline-kid-markdown"},
               {"carpeta": "structured_output", "repositorio": "pipeline-kid-extraccion"},
               {"carpeta": "carga",             "repositorio": "pipeline-kid-carga"},
-              {"carpeta": "api",               "repositorio": "pipeline-kid-api"}
+              {"carpeta": "api",               "repositorio": "pipeline-kid-api"},
+              {"carpeta": "app",               "repositorio": "pipeline-kid-app"}
             ]
         run: |
           if [ "$EVENTO" != "push" ] || ! git cat-file -e "${ANTES}^{commit}" 2>/dev/null; then
@@ -184,3 +186,13 @@ jobs:
       # Prueba de humo de la API desplegada: todas las rutas, con datos reales de la base de datos
       - name: Probar la API
         run: bash ../../api/prueba_humo.sh "$(terraform output -raw url_api)"
+
+      - name: Probar la aplicación web
+        run: |
+          url=$(terraform output -raw url_app)
+          url=${url%/}
+          echo "Aplicación: $url"
+          # Ruta de salud de Streamlit y tipografía servida por la propia aplicación
+          curl -fsS --retry 10 --retry-all-errors --retry-delay 15 "$url/_stcore/health"; echo
+          curl -fsS -o /dev/null -w "Tipografía: HTTP %{http_code}, %{size_download} bytes\n" \
+            "$url/app/static/fonts/AtkinsonHyperlegibleNext-Variable.woff2"

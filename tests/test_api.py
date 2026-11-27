@@ -31,13 +31,13 @@ FILA_FONDO = {
     "costes_entrada_pct": "0.000",
     "costes_salida_pct": None,
     "validaciones": json.dumps({"isin_valido": True, "isin_coincide_web": None, "sri_en_rango": True}),
+    "verificacion_evidencias": json.dumps({"isin": True, "sri": False}),
+    "modelo": "global.moonshotai.kimi-k3.1",
     "ultima_descarga": "2026-11-27 16:29:30",
 }
 
 FILA_DETALLE = FILA_FONDO | {
     "evidencias": json.dumps({"isin": "ISIN: ES0114673033", "nombre_clase": None}),
-    "verificacion_evidencias": json.dumps({"isin": True}),
-    "modelo": "global.moonshotai.kimi-k3.1",
     "fecha_extraccion": "2026-11-27 16:40:00.123",
     "documento_id": 7,
     "url_origen": "https://www.bestinver.es/x.pdf",
@@ -96,6 +96,7 @@ def test_fondos_convierte_los_tipos_de_la_data_api(cliente):
     assert fondo["periodo_mantenimiento_anios"] == 5.0
     assert fondo["costes_salida_pct"] is None
     assert fondo["validaciones"] == {"isin_valido": True, "isin_coincide_web": None, "sri_en_rango": True}
+    assert fondo["verificacion_evidencias"] == {"isin": True, "sri": False}
     # Sin filtros no hay WHERE y el orden por defecto es el nombre
     sql, parametros = bd.consultas[0]
     assert "WHERE" not in sql and "ORDER BY nombre_producto" in sql and parametros == []
@@ -157,7 +158,7 @@ def test_detalle_con_historial(cliente):
     assert respuesta.status_code == 200
     fondo = respuesta.json()
     assert fondo["evidencias"]["isin"] == "ISIN: ES0114673033"
-    assert fondo["verificacion_evidencias"] == {"isin": True}
+    assert fondo["verificacion_evidencias"] == {"isin": True, "sri": False}
     assert [v["actual"] for v in fondo["historial"]] == [True, False]
     assert all(p["value"] == {"stringValue": ISIN} for _, ps in bd.consultas for p in ps)
 

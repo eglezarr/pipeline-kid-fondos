@@ -57,9 +57,10 @@ pdf_markdown/           etapa 2: PDF a Markdown
 structured_output/      etapa 3: extracción con Bedrock
 carga/                  etapa 4: carga en PostgreSQL
 api/                    API HTTP (FastAPI en Lambda)
-app/                    aplicación web
+app/                    aplicación web (Streamlit en ECS Express Mode)
+scripts/                utilidades: capturas de pantalla de la aplicación desplegada
 tests/                  tests unitarios (pytest), sin acceso a internet ni a AWS
-.github/workflows/      despliegue y ejecución con GitHub Actions
+.github/workflows/      despliegue, ejecución del pipeline y capturas con GitHub Actions
 ```
 
 ## Captura de los KID (etapa 1)
@@ -206,6 +207,34 @@ Ejemplos: `/fondos?fuente=azvalor&orden=gastos`, `/fondos?sri_max=3&texto=renta`
 
 Ejecución en local (con credenciales de AWS y las variables `AURORA_CLUSTER_ARN`, `AURORA_SECRETO_ARN` y `BUCKET_DATOS`): `python -m uvicorn api_fondos:app --app-dir api` desde la raíz del repo.
 
+## Aplicación web
+
+La aplicación (`app/`) está hecha con **Streamlit** y se ejecuta en **Amazon ECS Express Mode**: un contenedor Fargate detrás de un balanceador con HTTPS que AWS crea y gestiona. Solo lee datos de la API (variable `API_URL`), nunca de la base de datos.
+
+Está pensada para quien compara fondos. Cada página responde a una de las preguntas con las que el propio KID organiza su información:
+
+| Página | Pregunta | Qué muestra |
+|---|---|---|
+| Panorama | ¿Cuánto riesgo declara cada fondo? | La escala de riesgo del KID como una escalera de siete peldaños, con los fondos de cada nivel. Además: gastos frente a riesgo, plazo recomendado y Bestinver frente a Azvalor |
+| Buscador | ¿Qué fondos encajan contigo? | Filtros por riesgo aceptado, tiempo disponible, gasto máximo, gestora y nombre. Tabla de resultados y descarga en CSV |
+| Costes | ¿Cuánto se llevan los costes? | Los porcentajes de costes convertidos en euros para un importe, plazo y rentabilidad elegidos, con la incidencia anual de los costes |
+| Ficha de un fondo | ¿Qué riesgo tiene?, ¿cuánto cuesta?, ¿de dónde salen los datos? | Cada dato con la cita literal del KID y si aparece en el documento, validaciones, posición frente a fondos del mismo riesgo, enlace al PDF original y versiones anteriores |
+| Fiabilidad | ¿Hasta qué punto son fiables estos datos? | Cómo se obtienen, resultado de cada comprobación y citas que conviene revisar |
+
+**Decisiones de diseño:**
+
+- **El riesgo es lo único en color.** La escala de 1 a 7 usa un solo tono de claro a oscuro, con contraste y saltos de luminosidad verificados. El resto de la interfaz es azul marino sobre blanco. Las dos gestoras se distinguen con azul y ocre, una pareja que se diferencia también con daltonismo, y siempre llevan leyenda.
+- **Frases calculadas.** El texto que acompaña a cada gráfico se genera a partir de los datos, por ejemplo la correlación de Spearman entre riesgo y gastos. Si cambian los datos, cambia el texto.
+- **Costes en euros.** El cálculo descuenta la comisión de entrada al invertir, los gastos corrientes cada año y la de salida al reembolsar. La página explica la fórmula y sus límites: es una aproximación a las tablas de costes del KID.
+- **Tipografía Atkinson Hyperlegible Next.** Está diseñada para la máxima legibilidad (su cero con barra evita confundirlo con la O en los ISIN), coherente con el objetivo del KID de ser comprensible. Se sirve desde la propia aplicación (licencia OFL), sin llamadas a servicios externos.
+- **Accesible y adaptable.** Los colores nunca van solos (leyendas, etiquetas y textos de estado). Las tablas son HTML semántico y la escalera se apila en pantallas estrechas.
+- **Caché de 10 minutos.** Los datos cambian una vez al mes. La primera visita tras una pausa de Aurora puede tardar unos segundos y la aplicación lo indica.
+- **Una sola tarea pequeña** (0,5 vCPU y 1 GB) sin autoescalado, para acotar el coste por hora del servicio.
+
+Ejecución en local, con la API desplegada: `cd app && API_URL=<url de la API> streamlit run kid_app.py`.
+
+**Capturas.** El workflow **Capturas de la aplicación** (manual) fotografía cada página de la aplicación desplegada, en escritorio y en móvil, y las deja como artefacto del workflow durante 5 días.
+
 ## Despliegue
 
 Región: `eu-west-3` (París). La cuenta de AWS debe estar en el plan de pago: el plan gratuito solo permite crear Aurora con la configuración express, que no admite la Data API con las credenciales gestionadas ni la creación directa desde Terraform. El gasto se cubre con los créditos de la cuenta y se vigila con alertas de AWS Budgets.
@@ -236,4 +265,4 @@ El workflow **Despliegue (imágenes y servicios)** se ejecuta en cada push a `ma
 1. Pasa el linter (`ruff`) y los tests (`pytest`); si fallan, no se despliega nada.
 2. Construye y sube a ECR la imagen de cada etapa cuya carpeta ha cambiado (todas si cambia `common/`).
 3. Aplica `infra/servicios/`: cada función Lambda pasa a usar la imagen más reciente de su repositorio.
-4. Prueba la API desplegada (`/health` y `/resumen`).
+4. Prueba la API desplegada (todas sus rutas, con `api/prueba_humo.sh`) y la aplicación (ruta de salud de Streamlit).

@@ -51,12 +51,11 @@ ORDENES = {
 COLUMNAS_FONDO = """
        isin, nombre_producto, nombre_clase, gestora, fuente, fecha_documento, sri,
        periodo_mantenimiento_anios, gastos_corrientes_pct, costes_entrada_pct, costes_salida_pct,
-       validaciones, ultima_descarga"""
+       validaciones, verificacion_evidencias, modelo, ultima_descarga"""
 
 SQL_DETALLE = f"""
 SELECT {COLUMNAS_FONDO},
-       evidencias, verificacion_evidencias, modelo, fecha_extraccion,
-       documento_id, url_origen, url_ficha, primera_descarga
+       evidencias, fecha_extraccion, documento_id, url_origen, url_ficha, primera_descarga
   FROM kid_actual
  WHERE isin = :isin
 """
@@ -133,6 +132,8 @@ class Fondo(BaseModel):
     costes_entrada_pct: float | None
     costes_salida_pct: float | None
     validaciones: Validaciones
+    verificacion_evidencias: dict[str, bool] = Field(description="Si la cita de cada campo aparece en el documento")
+    modelo: str = Field(description="Modelo de Bedrock que hizo la extracción")
     ultima_descarga: datetime
 
 
@@ -148,8 +149,6 @@ class VersionKID(BaseModel):
 
 class FondoDetalle(Fondo):
     evidencias: dict[str, str | None] = Field(description="Fragmento literal del KID que respalda cada campo")
-    verificacion_evidencias: dict[str, bool] = Field(description="Si cada fragmento aparece en el documento")
-    modelo: str = Field(description="Modelo de Bedrock que hizo la extracción")
     fecha_extraccion: datetime
     documento_id: int
     url_origen: str = Field(description="URL del PDF en la web de la gestora")

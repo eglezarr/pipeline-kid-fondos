@@ -1,0 +1,5 @@
+# Dependencias de la imagen de la aplicación web (Streamlit en ECS Express Mode)
+streamlit>=1.67
+altair>=6
+pandas
+requests

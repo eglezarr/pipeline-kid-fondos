@@ -22,3 +22,8 @@ output "url_api" {
   description = "URL pública de la API (documentación en /docs)"
   value       = aws_lambda_function_url.api.function_url
 }
+
+output "url_app" {
+  description = "URL pública de la aplicación web"
+  value       = aws_ecs_express_gateway_service.app.ingress_paths[0].endpoint
+}
