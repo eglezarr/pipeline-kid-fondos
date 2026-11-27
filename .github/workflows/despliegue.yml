@@ -17,6 +17,7 @@ on:
       - "webscrapper/**"
       - "pdf_markdown/**"
       - "structured_output/**"
+      - "carga/**"
       - "tests/**"
       - "infra/servicios/**"
       - "pyproject.toml"
@@ -69,7 +70,8 @@ jobs:
             [
               {"carpeta": "webscrapper",       "repositorio": "pipeline-kid-descarga"},
               {"carpeta": "pdf_markdown",      "repositorio": "pipeline-kid-markdown"},
-              {"carpeta": "structured_output", "repositorio": "pipeline-kid-extraccion"}
+              {"carpeta": "structured_output", "repositorio": "pipeline-kid-extraccion"},
+              {"carpeta": "carga",             "repositorio": "pipeline-kid-carga"}
             ]
         run: |
           if [ "$EVENTO" != "push" ] || ! git cat-file -e "${ANTES}^{commit}" 2>/dev/null; then

@@ -84,11 +84,45 @@ data "aws_iam_policy_document" "extraccion" {
   }
 }
 
+# Etapa 4: leer los JSON de extraction/ y escribir en Aurora mediante la Data API
+data "aws_iam_policy_document" "carga" {
+  statement {
+    sid       = "ComprobarBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [data.aws_s3_bucket.datos.arn]
+  }
+
+  statement {
+    sid       = "LeerExtraccion"
+    actions   = ["s3:GetObject"]
+    resources = ["${data.aws_s3_bucket.datos.arn}/extraction/*"]
+  }
+
+  statement {
+    sid = "DataApi"
+    actions = [
+      "rds-data:ExecuteStatement",
+      "rds-data:BeginTransaction",
+      "rds-data:CommitTransaction",
+      "rds-data:RollbackTransaction",
+    ]
+    resources = [data.aws_rds_cluster.fondos.arn]
+  }
+
+  # La Data API usa las credenciales guardadas en Secrets Manager en nombre de la función
+  statement {
+    sid       = "LeerCredencialesBaseDatos"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [data.aws_rds_cluster.fondos.master_user_secret[0].secret_arn]
+  }
+}
+
 locals {
   politicas_etapas = {
     descarga   = data.aws_iam_policy_document.descarga.json
     markdown   = data.aws_iam_policy_document.markdown.json
     extraccion = data.aws_iam_policy_document.extraccion.json
+    carga      = data.aws_iam_policy_document.carga.json
   }
 }
 

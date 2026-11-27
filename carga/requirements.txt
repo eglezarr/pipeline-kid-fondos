@@ -1,0 +1,2 @@
+# Dependencias de la imagen Lambda de la etapa 4 (carga en PostgreSQL con la RDS Data API)
+boto3

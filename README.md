@@ -118,8 +118,48 @@ Cada campo va acompañado de su **evidencia**, el fragmento literal del document
 El JSON de cada KID (`extraction/<gestora>/<AAAAMMDD>/<slug>_datos_fundamentales.json`) incluye los datos, las evidencias, el resultado de estos controles y los datos de origen del manifiesto (URL, fecha de descarga y huella del PDF), que la etapa 4 usa para cargar la base de datos. La extracción procesa varios KID en paralelo (4 por defecto).
 
 Ejecución:
-- En AWS: workflow **Ejecutar pipeline** (pestaña *Actions → Run workflow*), que invoca las etapas encadenadas para una gestora o para todas y muestra un resumen de los datos extraídos.
+- En AWS: workflow **Ejecutar pipeline** (pestaña *Actions → Run workflow*), que invoca las etapas encadenadas para una gestora o para todas y muestra un resumen de los datos extraídos y del contenido de la base de datos.
 - En local: `python pdf_markdown/pdf_a_markdown.py <gestora>` y `python structured_output/extractor_kid.py <gestora>`.
+
+## Base de datos (etapa 4)
+
+La etapa 4 (`carga/`) lee los JSON de `extraction/` y los carga en Aurora PostgreSQL mediante la RDS Data API. Antes de cargar aplica `carga/esquema.sql`, cuyas sentencias son idempotentes, así que la base de datos no necesita preparación manual.
+
+```mermaid
+erDiagram
+    documentos ||--o| kid : "datos extraídos"
+    documentos {
+        bigint id PK
+        char sha256 UK "huella del PDF"
+        text gestora "fuente de la captura"
+        text url_origen
+        char isin_web
+        timestamptz primera_descarga
+        timestamptz ultima_descarga
+    }
+    kid {
+        bigint id PK
+        bigint documento_id FK,UK
+        char isin
+        text nombre_producto
+        text nombre_clase
+        text gestora
+        date fecha_documento
+        smallint sri "1 a 7"
+        numeric periodo_mantenimiento_anios
+        numeric gastos_corrientes_pct
+        numeric costes_entrada_pct
+        numeric costes_salida_pct
+        jsonb evidencias
+        jsonb validaciones
+    }
+```
+
+- **`documentos`**: un PDF por fila, único por su `sha256`. Si una ejecución vuelve a descargar el mismo PDF, solo se actualiza `ultima_descarga`.
+- **`kid`**: los campos del Anexo A de cada documento (único por documento), con el modelo usado, las evidencias, su verificación y las validaciones en columnas JSONB. Reprocesar un documento actualiza su fila.
+- **`kid_actual`** (vista): la versión más reciente de cada ISIN, que es la que consultan la API y la aplicación. Si la gestora publica un KID nuevo (otro PDF, otra huella), el anterior se conserva como histórico.
+
+Cada documento se carga en una transacción (documento y datos a la vez). La función devuelve el número de filas antes y después de la carga: procesar dos veces los mismos documentos deja los recuentos igual.
 
 ## Despliegue
 

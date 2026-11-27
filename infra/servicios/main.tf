@@ -35,7 +35,21 @@ locals {
         EXTRACCION_CONCURRENCIA = "4"
       }
     }
+    carga = {
+      descripcion = "Etapa 4: carga de los datos extraidos en PostgreSQL (Aurora, RDS Data API)"
+      memoria     = 256
+      timeout     = 600
+      variables = {
+        AURORA_CLUSTER_ARN = data.aws_rds_cluster.fondos.arn
+        AURORA_SECRETO_ARN = data.aws_rds_cluster.fondos.master_user_secret[0].secret_arn
+        AURORA_BASE_DATOS  = data.aws_rds_cluster.fondos.database_name
+      }
+    }
   }
+}
+
+data "aws_rds_cluster" "fondos" {
+  cluster_identifier = "${local.prefijo}-bd"
 }
 
 data "aws_s3_bucket" "datos" {

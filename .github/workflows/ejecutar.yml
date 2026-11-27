@@ -15,8 +15,8 @@ on:
       hasta:
         description: Última etapa a ejecutar
         type: choice
-        options: [extraccion, markdown, descarga]
-        default: extraccion
+        options: [carga, extraccion, markdown, descarga]
+        default: carga
       reconvertir:
         description: Regenerar el Markdown aunque ya exista
         type: boolean
@@ -69,11 +69,11 @@ jobs:
           scripts/invocar_lambda.sh pipeline-kid-markdown evento_markdown.json markdown.json
 
       - name: "Etapa 3: extracción con Bedrock"
-        if: inputs.hasta == 'extraccion'
+        if: inputs.hasta == 'extraccion' || inputs.hasta == 'carga'
         run: scripts/invocar_lambda.sh pipeline-kid-extraccion markdown.json extraccion.json
 
       - name: Datos extraídos
-        if: inputs.hasta == 'extraccion'
+        if: inputs.hasta == 'extraccion' || inputs.hasta == 'carga'
         run: |
           bucket=$(jq -r .bucket extraccion.json)
           for clave in $(jq -r '.claves[]' extraccion.json); do
@@ -87,3 +87,18 @@ jobs:
                 | select(.value | not) | {(.key): $d[.key + "_evidencia"]}] | add)
             }'
           done
+
+      - name: "Etapa 4: carga en PostgreSQL"
+        if: inputs.hasta == 'carga'
+        run: scripts/invocar_lambda.sh pipeline-kid-carga extraccion.json carga.json
+
+      - name: Contenido de la base de datos
+        if: inputs.hasta == 'carga'
+        run: |
+          read -r cluster secreto <<< "$(aws rds describe-db-clusters --db-cluster-identifier pipeline-kid-bd \
+            --query 'DBClusters[0].[DBClusterArn, MasterUserSecret.SecretArn]' --output text)"
+          aws rds-data execute-statement --resource-arn "$cluster" --secret-arn "$secreto" --database fondos \
+            --format-records-as JSON --query formattedRecords --output text \
+            --sql "SELECT fuente, count(*) AS kids, round(avg(sri), 2) AS sri_medio,
+                          round(avg(gastos_corrientes_pct), 3) AS gastos_corrientes_medios
+                     FROM kid_actual GROUP BY fuente ORDER BY fuente" | jq .
