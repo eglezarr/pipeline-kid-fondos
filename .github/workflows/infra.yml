@@ -53,16 +53,6 @@ jobs:
           sufijo=$(printf '%s' "$cuenta" | sha256sum | cut -c1-8)
           echo "TF_STATE_BUCKET=pipeline-kid-tfstate-${sufijo}" >> "$GITHUB_ENV"
 
-      - name: Versiones de Aurora PostgreSQL disponibles (diagnóstico)
-        continue-on-error: true
-        run: |
-          aws rds describe-db-engine-versions --engine aurora-postgresql \
-            --query "DBEngineVersions[].[EngineVersion,DBParameterGroupFamily,Status]" \
-            --output text | tail -n 25
-          echo "Versión por defecto:"
-          aws rds describe-db-engine-versions --engine aurora-postgresql --default-only \
-            --query "DBEngineVersions[].EngineVersion" --output text
-
       - name: Formato
         run: terraform fmt -check -recursive -diff || echo "::warning::Hay ficheros .tf sin formatear (terraform fmt)"
 
@@ -83,3 +73,20 @@ jobs:
 
       - name: Outputs
         run: terraform output
+
+      - name: Comprobar la base de datos (Data API)
+        run: |
+          cluster=$(terraform output -raw aurora_cluster_arn)
+          secreto=$(terraform output -raw aurora_secreto_arn)
+          bd=$(terraform output -raw aurora_base_datos)
+          # Si Aurora está en pausa, la primera petición la reanuda y puede fallar: se reintenta
+          for intento in 1 2 3 4 5 6; do
+            if aws rds-data execute-statement --resource-arn "$cluster" --secret-arn "$secreto" \
+                --database "$bd" --sql "SELECT version()" \
+                --query "records[0][0].stringValue" --output text; then
+              exit 0
+            fi
+            echo "Aurora se está reanudando; nuevo intento en 20 s"
+            sleep 20
+          done
+          exit 1

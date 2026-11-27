@@ -62,7 +62,7 @@ app/                    aplicación web
 
 ## Despliegue
 
-Región: `eu-west-3` (París).
+Región: `eu-west-3` (París). La cuenta de AWS debe estar en el plan de pago: el plan gratuito solo permite crear Aurora con la configuración express, que no admite la Data API con las credenciales gestionadas ni la creación directa desde Terraform. El gasto se cubre con los créditos de la cuenta y se vigila con alertas de AWS Budgets.
 
 ### 1. Arranque de la cuenta (una sola vez)
 
