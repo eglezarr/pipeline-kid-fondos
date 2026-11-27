@@ -114,7 +114,7 @@ Cada campo va acompañado de su **evidencia**, el fragmento literal del document
 | ISIN igual al publicado en la ficha web (manifiesto) | KID descargado de la ficha equivocada o ISIN de otra clase |
 | SRI entre 1 y 7 | Valores fuera de escala |
 
-El JSON de cada KID (`extraction/<gestora>/<AAAAMMDD>/<slug>_datos_fundamentales.json`) incluye los datos, las evidencias, el resultado de estos controles y los datos de origen del manifiesto (URL, fecha de descarga y huella del PDF), que la etapa 4 usa para cargar la base de datos. La extracción procesa varios KID en paralelo (4 por defecto).
+El JSON de cada KID (`extraction/<gestora>/<AAAAMMDD>/<slug>_datos_fundamentales.json`) incluye los datos, las evidencias, el resultado de estos controles y los datos de origen del manifiesto (URL, fecha de descarga y huella del PDF), que la etapa 4 usa para cargar la base de datos. La extracción procesa varios KID en paralelo (2 por gestora; las dos gestoras se extraen a la vez) y, si Bedrock limita las peticiones (`ThrottlingException`), reintenta con espera creciente.
 
 Ejecución en local: `python pdf_markdown/pdf_a_markdown.py <gestora>` y `python structured_output/extractor_kid.py <gestora>`.
 
@@ -178,6 +178,7 @@ flowchart LR
 - Los errores transitorios del servicio Lambda se reintentan (3 intentos con espera creciente).
 - Si una etapa falla, esa gestora termina en `GestoraFallida` con el detalle del error y las demás continúan. Al final, la ejecución termina en error si alguna gestora ha fallado, para que se vea en la consola.
 - Cada ejecución queda registrada y se puede seguir paso a paso en la consola de Step Functions.
+- Los fallos parciales (un documento que no se ha podido procesar en alguna etapa) no detienen el pipeline: cada etapa los pasa a la siguiente en `fallos_previos`, y la respuesta final de cada gestora los recoge todos, con la etapa en que se produjeron.
 
 **Ejecución programada.** Un horario de **EventBridge Scheduler** inicia el pipeline para todas las gestoras el **día 15 de cada mes a las 9:00 (hora de Madrid)**: los KID se actualizan con poca frecuencia. Se desactiva con la variable `horario_activo` de `infra/servicios`.
 

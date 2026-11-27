@@ -18,7 +18,7 @@ def handler(event, context):
     event = alm.evento_lambda(event)
     if not event.get("gestora"):
         raise ValueError('el evento debe indicar la gestora, p. ej. {"gestora": "bestinver"}')
-    return convertir_pdfs(
+    resumen = convertir_pdfs(
         gestora=event["gestora"],
         bucket=event.get("bucket"),
         fecha=event.get("fecha"),
@@ -28,3 +28,5 @@ def handler(event, context):
         sobrescribir=bool(event.get("sobrescribir", False)),
         claves=event.get("claves"),
     )
+    resumen["fallos_previos"] = alm.fallos_acumulados(event, "descarga")
+    return resumen

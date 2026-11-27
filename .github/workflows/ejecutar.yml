@@ -63,7 +63,8 @@ jobs:
           if [ "$ESTADO" = "SUCCEEDED" ]; then
             # Resumen de la carga de cada gestora (respuesta de la etapa 4)
             aws stepfunctions describe-execution --execution-arn "$EJECUCION" --query output --output text \
-              | jq '.gestoras[] | {gestora, fecha, kids_cargados: (.claves | length), filas_antes, filas_despues, fallos}'
+              | jq '.gestoras[] | {gestora, fecha, kids_cargados: (.claves | length), filas_antes, filas_despues,
+                                   fallos_por_etapa: (.fallos_previos + [.fallos[] | {etapa: "carga"} + .])}'
           else
             # Gestoras fallidas: etapa y mensaje de error
             aws stepfunctions get-execution-history --execution-arn "$EJECUCION" --reverse-order \

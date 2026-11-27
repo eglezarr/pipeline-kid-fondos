@@ -32,7 +32,7 @@ locals {
       timeout     = 900
       variables = {
         MODELO_BEDROCK          = var.modelo_bedrock
-        EXTRACCION_CONCURRENCIA = "4"
+        EXTRACCION_CONCURRENCIA = "2" # las dos gestoras se extraen a la vez: 4 llamadas simultaneas a Bedrock
       }
     }
     carga = {

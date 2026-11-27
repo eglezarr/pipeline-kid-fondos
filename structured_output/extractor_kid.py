@@ -43,7 +43,7 @@ from common.validaciones import isin_valido  # noqa: E402
 MODELO = os.environ.get("MODELO_BEDROCK", "global.moonshotai.kimi-k3.1")
 REGION_BEDROCK = os.environ.get("AWS_REGION", "eu-west-3")
 # KID que se procesan a la vez (llamadas simultáneas a Bedrock)
-CONCURRENCIA = int(os.environ.get("EXTRACCION_CONCURRENCIA", "4"))
+CONCURRENCIA = int(os.environ.get("EXTRACCION_CONCURRENCIA", "2"))
 
 DESCRIPCION_EVIDENCIA = (
     "Fragmento LITERAL del documento del que se ha extraído el campo anterior, copiado exactamente "
@@ -171,7 +171,8 @@ def crear_extractor():
         region_name=REGION_BEDROCK,
         max_tokens=4096,
         # La primera llamada con un esquema nuevo puede tardar hasta ~90 s (Bedrock compila la gramática)
-        config=Config(read_timeout=180, retries={"max_attempts": 4, "mode": "adaptive"}),
+        # Modo adaptativo: ante ThrottlingException reintenta con espera creciente y limita el ritmo
+        config=Config(read_timeout=180, retries={"max_attempts": 10, "mode": "adaptive"}),
     )
     return modelo.with_structured_output(DatosKID, method="json_schema")
 

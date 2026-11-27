@@ -65,6 +65,17 @@ def evento_lambda(event) -> dict:
     return event
 
 
+def fallos_acumulados(event: dict, etapa_anterior: str) -> list[dict]:
+    """Fallos de las etapas anteriores, para que lleguen al resumen final del pipeline.
+
+    Cada etapa devuelve sus `fallos`; la siguiente los añade (con el nombre de la etapa) a
+    `fallos_previos`, de modo que la respuesta de la última etapa los incluye todos.
+    """
+    return list(event.get("fallos_previos", [])) + [
+        {"etapa": etapa_anterior, **fallo} for fallo in event.get("fallos", [])
+    ]
+
+
 def comprobar_fecha(texto: str) -> str:
     """Devuelve la fecha si tiene el formato AAAAMMDD; si no, lanza ValueError."""
     try:
