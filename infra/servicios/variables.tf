@@ -21,3 +21,21 @@ variable "modelo_bedrock" {
   type        = string
   default     = "global.moonshotai.kimi-k3.1"
 }
+
+variable "gestoras" {
+  description = "Gestoras que procesa el pipeline en cada ejecución programada"
+  type        = list(string)
+  default     = ["bestinver", "azvalor"]
+}
+
+variable "horario_pipeline" {
+  description = "Expresión cron del horario del pipeline (en la zona Europe/Madrid): día 15 de cada mes a las 9:00"
+  type        = string
+  default     = "cron(0 9 15 * ? *)"
+}
+
+variable "horario_activo" {
+  description = "Activa o desactiva la ejecución programada del pipeline"
+  type        = bool
+  default     = true
+}

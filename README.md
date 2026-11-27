@@ -58,7 +58,6 @@ structured_output/      etapa 3: extracción con Bedrock
 carga/                  etapa 4: carga en PostgreSQL
 api/                    API HTTP
 app/                    aplicación web
-scripts/                utilidades para los workflows (invocar una función Lambda)
 tests/                  tests unitarios (pytest), sin acceso a internet ni a AWS
 .github/workflows/      despliegue y ejecución con GitHub Actions
 ```
@@ -117,9 +116,7 @@ Cada campo va acompañado de su **evidencia**, el fragmento literal del document
 
 El JSON de cada KID (`extraction/<gestora>/<AAAAMMDD>/<slug>_datos_fundamentales.json`) incluye los datos, las evidencias, el resultado de estos controles y los datos de origen del manifiesto (URL, fecha de descarga y huella del PDF), que la etapa 4 usa para cargar la base de datos. La extracción procesa varios KID en paralelo (4 por defecto).
 
-Ejecución:
-- En AWS: workflow **Ejecutar pipeline** (pestaña *Actions → Run workflow*), que invoca las etapas encadenadas para una gestora o para todas y muestra un resumen de los datos extraídos y del contenido de la base de datos.
-- En local: `python pdf_markdown/pdf_a_markdown.py <gestora>` y `python structured_output/extractor_kid.py <gestora>`.
+Ejecución en local: `python pdf_markdown/pdf_a_markdown.py <gestora>` y `python structured_output/extractor_kid.py <gestora>`.
 
 ## Base de datos (etapa 4)
 
@@ -160,6 +157,31 @@ erDiagram
 - **`kid_actual`** (vista): la versión más reciente de cada ISIN, que es la que consultan la API y la aplicación. Si la gestora publica un KID nuevo (otro PDF, otra huella), el anterior se conserva como histórico.
 
 Cada documento se carga en una transacción (documento y datos a la vez). La función devuelve el número de filas antes y después de la carga: procesar dos veces los mismos documentos deja los recuentos igual.
+
+## Orquestación y ejecución programada
+
+Las cuatro etapas se encadenan con una máquina de estados de **Step Functions** (`pipeline-kid-pipeline`), definida en `infra/servicios/orquestacion.tf`:
+
+```mermaid
+flowchart LR
+    E["Entrada<br/>{gestoras: [bestinver, azvalor]}"] --> M
+    subgraph M["Map: una rama por gestora, en paralelo"]
+        D[Descarga] --> MD[Markdown] --> X[Extracción] --> C[Carga]
+        D & MD & X & C -. error .-> F[GestoraFallida]
+    end
+    M --> R{¿Alguna gestora<br/>ha fallado?}
+    R -- no --> OK[Completado]
+    R -- sí --> KO[ConErrores]
+```
+
+- La respuesta de cada función es la entrada de la siguiente (`OutputPath: $.Payload`).
+- Los errores transitorios del servicio Lambda se reintentan (3 intentos con espera creciente).
+- Si una etapa falla, esa gestora termina en `GestoraFallida` con el detalle del error y las demás continúan. Al final, la ejecución termina en error si alguna gestora ha fallado, para que se vea en la consola.
+- Cada ejecución queda registrada y se puede seguir paso a paso en la consola de Step Functions.
+
+**Ejecución programada.** Un horario de **EventBridge Scheduler** inicia el pipeline para todas las gestoras el **día 15 de cada mes a las 9:00 (hora de Madrid)**: los KID se actualizan con poca frecuencia. Se desactiva con la variable `horario_activo` de `infra/servicios`.
+
+**Ejecución manual.** Workflow **Ejecutar pipeline** (pestaña *Actions → Run workflow*): inicia una ejecución para una gestora o para todas, espera a que termine y muestra el resumen de la carga y el contenido de la base de datos.
 
 ## Despliegue
 
