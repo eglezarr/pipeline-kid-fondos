@@ -8,11 +8,10 @@
 # - Contraseña gestionada por AWS en Secrets Manager: no aparece en el código
 #   ni en el estado de Terraform.
 
-# Última versión menor de PostgreSQL 16 disponible en la región
+# Versión de Aurora PostgreSQL que AWS ofrece por defecto en la región
 data "aws_rds_engine_version" "postgresql" {
-  engine                 = "aurora-postgresql"
-  parameter_group_family = "aurora-postgresql16"
-  latest                 = true
+  engine       = "aurora-postgresql"
+  default_only = true
 }
 
 resource "aws_rds_cluster" "fondos" {
