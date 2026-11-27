@@ -1,0 +1,75 @@
+name: Infraestructura (Terraform)
+
+# Aplica la infraestructura de infra/ en cada push a main que la modifique,
+# o a mano desde la pestaña Actions (Run workflow).
+# infra/bootstrap/ no se despliega aquí: se aplica una sola vez desde CloudShell.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - "!infra/bootstrap/**"
+      - ".github/workflows/infra.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # necesario para OIDC
+  contents: read
+
+# Nunca dos ejecuciones de Terraform a la vez sobre el mismo estado
+concurrency:
+  group: terraform-principal
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-3
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  terraform:
+    name: Plan y apply
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Nombre del bucket del estado
+        # Mismo cálculo que infra/bootstrap/arrancar.sh: hash del ID de la cuenta
+        run: |
+          cuenta=$(aws sts get-caller-identity --query Account --output text)
+          sufijo=$(printf '%s' "$cuenta" | sha256sum | cut -c1-8)
+          echo "TF_STATE_BUCKET=pipeline-kid-tfstate-${sufijo}" >> "$GITHUB_ENV"
+
+      - name: Formato
+        run: terraform fmt -check -recursive -diff || echo "::warning::Hay ficheros .tf sin formatear (terraform fmt)"
+
+      - name: Init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        run: terraform plan -input=false -out=plan.tfplan
+
+      - name: Apply
+        run: terraform apply -input=false plan.tfplan
+
+      - name: Outputs
+        run: terraform output
