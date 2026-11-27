@@ -96,7 +96,8 @@ resource "aws_ecs_express_gateway_service" "app" {
     container_port = 8501
 
     aws_logs_configuration {
-      log_group = aws_cloudwatch_log_group.app.name
+      log_group         = aws_cloudwatch_log_group.app.name
+      log_stream_prefix = "streamlit"
     }
 
     environment {
