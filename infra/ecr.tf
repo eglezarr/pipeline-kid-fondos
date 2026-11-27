@@ -17,11 +17,11 @@ resource "aws_ecr_lifecycle_policy" "imagenes" {
   for_each = aws_ecr_repository.imagenes
 
   repository = each.value.name
-  policy     = jsonencode({
+  policy = jsonencode({
     rules = [{
       rulePriority = 1
       description  = "Conservar solo las 5 imagenes mas recientes"
-      selection    = {
+      selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
         countNumber = 5

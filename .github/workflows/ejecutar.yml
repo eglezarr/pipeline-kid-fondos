@@ -48,3 +48,12 @@ jobs:
           jq . respuesta.json
           # Si la función ha fallado, la respuesta contiene errorMessage
           if jq -e 'has("errorMessage")' respuesta.json > /dev/null; then exit 1; fi
+
+      - name: Manifiesto de la captura
+        run: |
+          bucket=$(jq -r .bucket respuesta.json)
+          manifiesto=$(jq -r .manifiesto respuesta.json)
+          aws s3 cp "s3://${bucket}/${manifiesto}" - \
+            | jq '{gestora, fecha, inicio, fin,
+                   documentos: [.documentos[] | {fondo, isin_web, url_origen, fecha_descarga, sha256, tamano_bytes}],
+                   incidencias, fallos}'

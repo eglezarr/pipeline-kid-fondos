@@ -63,6 +63,18 @@ def isin_valido(isin: str) -> bool:
     return total % 10 == 0
 
 
+def codificacion_html(resp: requests.Response) -> str:
+    """Codificación con la que leer una página HTML.
+
+    requests asigna ISO-8859-1 por defecto cuando la cabecera Content-Type no indica charset;
+    en ese caso (o si no hay ninguna) se usa la codificación detectada en el propio contenido.
+    """
+    declarada = (resp.encoding or "").lower()
+    if declarada and declarada != "iso-8859-1":
+        return resp.encoding
+    return resp.apparent_encoding or "utf-8"
+
+
 def isin_unico(texto: str) -> str | None:
     """ISIN válido presente en el texto, si hay exactamente uno distinto; si no, None."""
     candidatos = {c for c in PATRON_ISIN.findall(texto) if isin_valido(c)}
@@ -165,8 +177,9 @@ class Navegador:
         return resp
 
     def arbol(self, url: str) -> html.HtmlElement:
-        """Página HTML parseada con lxml."""
-        return html.fromstring(self.obtener(url).content)
+        """Página HTML parseada con lxml, con la codificación correcta (acentos y eñes)."""
+        resp = self.obtener(url)
+        return html.fromstring(resp.content, parser=html.HTMLParser(encoding=codificacion_html(resp)))
 
     def descargar_pdf(self, url: str) -> bytes:
         """Descarga un PDF y comprueba que lo es (algunas webs devuelven HTML de error)."""

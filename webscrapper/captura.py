@@ -101,7 +101,7 @@ def capturar(
             fallos.append({"fondo": kid.fondo, "url": kid.url_origen, "error": f"subida a S3: {e}"})
             continue
 
-        print(f"  [ok] {kid.fondo} -> s3://{bucket}/{clave}")
+        print(f"  [ok] {kid.fondo} [{kid.isin_web or 'ISIN no encontrado en la web'}] -> s3://{bucket}/{clave}")
         documentos.append(
             {
                 **asdict(kid),

@@ -2,7 +2,7 @@
 
 import pytest
 
-from utilidades_web import Robots, isin_unico, isin_valido, normalizar
+from utilidades_web import Robots, codificacion_html, isin_unico, isin_valido, normalizar
 
 ROBOTS_BESTINVER = """
 User-agent: *
@@ -62,3 +62,16 @@ def test_robots_comodines():
 
 def test_robots_sin_reglas_permite_todo():
     assert Robots([]).permite("https://www.ejemplo.com/cualquier/cosa.pdf")
+
+
+class RespuestaFalsa:
+    def __init__(self, encoding, apparent_encoding="utf-8"):
+        self.encoding, self.apparent_encoding = encoding, apparent_encoding
+
+
+def test_codificacion_html():
+    # Cabecera con charset: se respeta
+    assert codificacion_html(RespuestaFalsa("utf-8")) == "utf-8"
+    # Sin charset, requests asigna ISO-8859-1 por defecto: se usa la detectada en el contenido
+    assert codificacion_html(RespuestaFalsa("ISO-8859-1", "utf-8")) == "utf-8"
+    assert codificacion_html(RespuestaFalsa(None, "utf-8")) == "utf-8"
