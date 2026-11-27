@@ -181,12 +181,6 @@ jobs:
       - name: Outputs
         run: terraform output
 
-      # Prueba de humo de la API desplegada: estado del servicio y consulta real a la base de datos
+      # Prueba de humo de la API desplegada: todas las rutas, con datos reales de la base de datos
       - name: Probar la API
-        run: |
-          url=$(terraform output -raw url_api)
-          url=${url%/}
-          echo "API: $url"
-          curl -fsS --retry 5 --retry-all-errors --retry-delay 5 "$url/health"; echo
-          # La primera consulta puede reanudar Aurora: la API reintenta y, si aún no responde, devuelve 503
-          curl -fsS --max-time 70 --retry 3 --retry-all-errors --retry-delay 15 "$url/resumen" | jq .
+        run: bash ../../api/prueba_humo.sh "$(terraform output -raw url_api)"

@@ -369,13 +369,16 @@ def detalle_fondo(isin: IsinPath, repo: RepositorioDep):
     description=f"Redirige a un enlace temporal de S3 (válido {SEGUNDOS_ENLACE_KID} s) al PDF capturado.",
 )
 def documento_kid(isin: IsinPath, repo: RepositorioDep, s3: S3Dep):
+    bucket = os.environ.get("BUCKET_DATOS")
+    if not bucket:
+        raise HTTPException(status_code=500, detail="Falta la variable de entorno BUCKET_DATOS")
     clave = repo.clave_kid(isin)
     if clave is None:
         raise HTTPException(status_code=404, detail=f"No hay ningún KID con ISIN {isin}")
     url = s3.generate_presigned_url(
         "get_object",
         Params={
-            "Bucket": os.environ["BUCKET_DATOS"],
+            "Bucket": bucket,
             "Key": clave,
             "ResponseContentType": "application/pdf",
             "ResponseContentDisposition": f'inline; filename="{isin}.pdf"',
